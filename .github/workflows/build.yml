@@ -133,15 +133,14 @@ jobs:
         run: ls -alh ./output/arm64/
       - name: 创建发布版本
         id: create_release
-        uses: actions/create-release@v1
+        uses: actions/create-release@v1.1.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: 'v${{ env.STABLE_VERSION }}'
-          name: 'Kernel Build v${{ env.STABLE_VERSION }}'
+          release_name: 'Kernel Build v${{ env.STABLE_VERSION }}'
           draft: false
           prerelease: false
-          generate_release_notes: true
       - name: 打包 x86_64 内核包
         run: |
           cd ./output/x86_64/
