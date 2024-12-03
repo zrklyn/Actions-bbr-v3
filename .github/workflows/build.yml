@@ -35,9 +35,7 @@ jobs:
       - name: 获取最新内核稳定版本号
         id: get_version
         run: |
-          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-          cd linux
-          STABLE_VERSION=$(git describe --tags $(git rev-list --tags --max-count=1))
+          STABLE_VERSION=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git | awk -F'/' '{print $NF}' | sort -V | tail -n 1)
           echo "最新内核稳定版本为：$STABLE_VERSION"
           echo "STABLE_VERSION=$STABLE_VERSION" >> $GITHUB_ENV
 
@@ -62,7 +60,7 @@ jobs:
           echo "跳过内核构建步骤。"
           exit 0
 
-      - name: 下载内核源码
+      - name: 克隆内核源码
         run: |
           git clone --depth 1 --branch ${{ env.STABLE_VERSION }} https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
@@ -120,60 +118,3 @@ jobs:
         with:
           name: kernel-debs-${{ matrix.arch }}
           path: output/${{ matrix.arch }}/
-
-  release_kernel:
-    needs: check_and_build_kernel
-    if: needs.check_and_build_kernel.outputs.skip_build == 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - name: 下载 x86_64 内核包
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-debs-x86_64
-          path: ./output/x86_64/
-      - name: 下载 arm64 内核包
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-debs-arm64
-          path: ./output/arm64/
-      - name: 列出 x86_64 内核包
-        run: ls -alh ./output/x86_64/
-      - name: 列出 arm64 内核包
-        run: ls -alh ./output/arm64/
-      - name: 创建发布版本
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: 'v${{ env.STABLE_VERSION }}'
-          name: 'Kernel Build v${{ env.STABLE_VERSION }}'
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-      - name: 打包 x86_64 内核包
-        run: |
-          cd ./output/x86_64/
-          tar -czvf linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz *.deb
-      - name: 打包 arm64 内核包
-        run: |
-          cd ./output/arm64/
-          tar -czvf linux-arm64-${{ env.STABLE_VERSION }}.tar.gz *.deb
-      - name: 上传 x86_64 内核包到发布版本
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./output/x86_64/linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz
-          asset_name: linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz
-          asset_content_type: application/gzip
-      - name: 上传 arm64 内核包到发布版本
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./output/arm64/linux-arm64-${{ env.STABLE_VERSION }}.tar.gz
-          asset_name: linux-arm64-${{ env.STABLE_VERSION }}.tar.gz
-          asset_content_type: application/gzip
