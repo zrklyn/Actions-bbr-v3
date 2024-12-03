@@ -4,17 +4,13 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'  # 每天凌晨 0 点运行（UTC 时间）
 
 permissions:
   contents: write  # 为 GITHUB_TOKEN 授予内容的写权限
 
 jobs:
-  check_and_build_kernel:
+  build_kernel:
     runs-on: ubuntu-latest
-    outputs:
-      skip_build: ${{ steps.check_version.outputs.skip_build }}
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -32,44 +28,23 @@ jobs:
             sudo apt install -y crossbuild-essential-arm64
           fi
 
-      - name: 获取最新内核稳定版本号
-        id: get_version
-        run: |
-          STABLE_VERSION=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git | awk -F'/' '{print $NF}' | sort -V | tail -n 1)
-          echo "最新内核稳定版本为：$STABLE_VERSION"
-          echo "STABLE_VERSION=$STABLE_VERSION" >> $GITHUB_ENV
-
-      - name: 检查是否已有该版本内核
-        id: check_version
-        run: |
-          echo "检查是否已有内核版本 ${{ env.STABLE_VERSION }}..."
-          EXISTING_VERSION=$(gh release list | grep -oP '^v\K[0-9.]+(?=\s)' | grep "^${{ env.STABLE_VERSION }}$")
-          if [ "$EXISTING_VERSION" == "${{ env.STABLE_VERSION }}" ]; then
-            echo "SKIP_BUILD=true" >> $GITHUB_ENV
-            echo "::set-output name=skip_build::true"
-          else
-            echo "SKIP_BUILD=false" >> $GITHUB_ENV
-            echo "::set-output name=skip_build::false"
-          fi
-        env:
-          STABLE_VERSION: ${{ env.STABLE_VERSION }}
-
-      - name: 跳过构建检查
-        if: steps.check_version.outputs.skip_build == 'true'
-        run: |
-          echo "跳过内核构建步骤。"
-          exit 0
-
-      - name: 克隆内核源码
-        run: |
-          git clone --depth 1 --branch ${{ env.STABLE_VERSION }} https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-          cd linux
-
       - name: 设置交叉编译环境 (仅针对 ARM64)
         if: matrix.arch == 'arm64'
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+      - name: 下载内核源码
+        run: |
+          git clone https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+          cd linux
+
+      - name: 获取最新的内核版本号
+        run: |
+          cd linux
+          KERNEL_VERSION=$(make kernelversion)
+          echo "当前内核版本为：$KERNEL_VERSION"
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
 
       - name: 添加 BBR v3 源码仓库并拉取代码
         run: |
@@ -77,6 +52,13 @@ jobs:
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
+
+      - name: 拉取完 BBR v3 后写版本号进 Makefile
+        run: |
+          cd linux
+          sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
+          sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
+          sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
       - name: 复制自定义配置文件
         run: |
@@ -95,8 +77,11 @@ jobs:
       - name: 修改 .config 配置
         run: |
           cd linux
+          # 删除可能存在的 CONFIG_SYSTEM_TRUSTED_KEYS 行
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
+          # 设置 CONFIG_SYSTEM_TRUSTED_KEYS 为空
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
+          # 禁用调试信息以加快编译速度
           sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
 
       - name: 开始编译内核
@@ -118,3 +103,64 @@ jobs:
         with:
           name: kernel-debs-${{ matrix.arch }}
           path: output/${{ matrix.arch }}/
+
+  release_kernel:
+    needs: build_kernel
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 x86_64 内核包
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-debs-x86_64
+          path: ./output/x86_64/
+      - name: 下载 arm64 内核包
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-debs-arm64
+          path: ./output/arm64/
+      - name: 列出 x86_64 内核包
+        run: ls -alh ./output/x86_64/
+      - name: 列出 arm64 内核包
+        run: ls -alh ./output/arm64/
+      - name: 获取内核版本号
+        run: |
+          DEB_FILE=$(ls ./output/x86_64/linux-image-*.deb | head -n 1)
+          KERNEL_VERSION=$(echo "$DEB_FILE" | grep -oP 'linux-image-\K[0-9.]+')
+          echo "提取的内核版本号为：$KERNEL_VERSION"
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+      - name: 创建发布版本
+        id: create_release
+        uses: actions/create-release@v1.1.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: 'v${{ env.KERNEL_VERSION }}'
+          release_name: 'Kernel Build v${{ env.KERNEL_VERSION }}'
+          draft: false
+          prerelease: false
+      - name: 打包 x86_64 内核包
+        run: |
+          cd ./output/x86_64/
+          tar -czvf linux-x86_64-${{ env.KERNEL_VERSION }}.tar.gz *.deb
+      - name: 打包 arm64 内核包
+        run: |
+          cd ./output/arm64/
+          tar -czvf linux-arm64-${{ env.KERNEL_VERSION }}.tar.gz *.deb
+      - name: 上传 x86_64 内核包到发布版本
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./output/x86_64/linux-x86_64-${{ env.KERNEL_VERSION }}.tar.gz
+          asset_name: linux-x86_64-${{ env.KERNEL_VERSION }}.tar.gz
+          asset_content_type: application/gzip
+      - name: 上传 arm64 内核包到发布版本
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./output/arm64/linux-arm64-${{ env.KERNEL_VERSION }}.tar.gz
+          asset_name: linux-arm64-${{ env.KERNEL_VERSION }}.tar.gz
+          asset_content_type: application/gzip
