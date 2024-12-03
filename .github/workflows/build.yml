@@ -1,0 +1,170 @@
+name: 自动内核编译与BBR v3安装
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天凌晨 0 点运行（UTC 时间）
+
+permissions:
+  contents: write  # 为 GITHUB_TOKEN 授予内容的写权限
+
+jobs:
+  check_and_build_kernel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整的 Git 历史
+
+      - name: 安装依赖
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses-dev flex bison debhelper libelf-dev libssl-dev bc rsync dwarves git fakeroot dkms
+          if [ "${{ matrix.arch }}" == "arm64" ]; then
+            sudo apt install -y crossbuild-essential-arm64
+          fi
+
+      - name: 获取最新内核稳定版本号
+        run: |
+          STABLE_VERSION=$(curl -s https://www.kernel.org | grep -oP '(?<=latest_stable\">)[^<]+')
+          echo "最新内核稳定版本为：$STABLE_VERSION"
+          echo "STABLE_VERSION=$STABLE_VERSION" >> $GITHUB_ENV
+
+      - name: 检查是否已有该版本内核
+        run: |
+          echo "检查是否已有内核版本 ${{ env.STABLE_VERSION }}..."
+          EXISTING_VERSION=$(gh release list | grep -oP '^v\K[0-9.]+(?=\s)' | grep "^${{ env.STABLE_VERSION }}$")
+          if [ "$EXISTING_VERSION" == "${{ env.STABLE_VERSION }}" ]; then
+            echo "内核版本 ${{ env.STABLE_VERSION }} 已存在，跳过构建。"
+            echo "SKIP_BUILD=true" >> $GITHUB_ENV
+          else
+            echo "内核版本 ${{ env.STABLE_VERSION }} 不存在，将进行构建。"
+            echo "SKIP_BUILD=false" >> $GITHUB_ENV
+
+      - name: 跳过构建检查
+        if: env.SKIP_BUILD == 'true'
+        run: |
+          echo "跳过内核构建步骤。"
+          exit 0
+
+      - name: 下载内核源码
+        run: |
+          git clone --depth 1 --branch v${{ env.STABLE_VERSION }} https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+          cd linux
+
+      - name: 设置交叉编译环境 (仅针对 ARM64)
+        if: matrix.arch == 'arm64'
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+
+      - name: 添加 BBR v3 源码仓库并拉取代码
+        run: |
+          cd linux
+          git remote add google-bbr https://github.com/google/bbr.git
+          git fetch google-bbr
+          git checkout google-bbr/v3
+
+      - name: 复制自定义配置文件
+        run: |
+          cd linux
+          if [ "${{ matrix.arch }}" == "arm64" ]; then
+            cp "$GITHUB_WORKSPACE/arm64.config" .config
+          else
+            cp "$GITHUB_WORKSPACE/x86-64.config" .config
+          fi
+
+      - name: 自动接受默认配置
+        run: |
+          cd linux
+          yes "" | make olddefconfig
+
+      - name: 修改 .config 配置
+        run: |
+          cd linux
+          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
+          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
+          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+
+      - name: 开始编译内核
+        run: |
+          cd linux
+          if [ "${{ matrix.arch }}" == "arm64" ]; then
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog-joeyblog.net bindeb-pkg -j$(nproc)
+          else
+            make LOCALVERSION=-joeyblog-joeyblog.net bindeb-pkg -j$(nproc)
+          fi
+
+      - name: 收集内核包
+        run: |
+          mkdir -p output/${{ matrix.arch }}
+          find $GITHUB_WORKSPACE -path "$GITHUB_WORKSPACE/output" -prune -o -name "*.deb" -exec mv {} output/${{ matrix.arch }}/ \;
+
+      - name: 上传内核包
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-debs-${{ matrix.arch }}
+          path: output/${{ matrix.arch }}/
+
+  release_kernel:
+    needs: check_and_build_kernel
+    if: env.SKIP_BUILD == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 x86_64 内核包
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-debs-x86_64
+          path: ./output/x86_64/
+      - name: 下载 arm64 内核包
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-debs-arm64
+          path: ./output/arm64/
+      - name: 列出 x86_64 内核包
+        run: ls -alh ./output/x86_64/
+      - name: 列出 arm64 内核包
+        run: ls -alh ./output/arm64/
+      - name: 创建发布版本
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: 'v${{ env.STABLE_VERSION }}'
+          name: 'Kernel Build v${{ env.STABLE_VERSION }}'
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+      - name: 打包 x86_64 内核包
+        run: |
+          cd ./output/x86_64/
+          tar -czvf linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz *.deb
+      - name: 打包 arm64 内核包
+        run: |
+          cd ./output/arm64/
+          tar -czvf linux-arm64-${{ env.STABLE_VERSION }}.tar.gz *.deb
+      - name: 上传 x86_64 内核包到发布版本
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./output/x86_64/linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz
+          asset_name: linux-x86_64-${{ env.STABLE_VERSION }}.tar.gz
+          asset_content_type: application/gzip
+      - name: 上传 arm64 内核包到发布版本
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./output/arm64/linux-arm64-${{ env.STABLE_VERSION }}.tar.gz
+          asset_name: linux-arm64-${{ env.STABLE_VERSION }}.tar.gz
+          asset_content_type: application/gzip
