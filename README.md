@@ -48,11 +48,7 @@ on:
     - cron: '0 0 * * *'  # 每天凌晨 0 点运行（UTC 时间）
 ```
 
-核心编译命令：
-- `make LOCALVERSION=-joeyblog-joeyblog.net bindeb-pkg -j$(nproc)`  
-超快！还带个性化后缀，让生成的内核包独具一格。
 
----
 
 ### ✨ 功能亮点
 1. **实时检测内核版本**  
@@ -76,7 +72,7 @@ on:
 ### 📜 附录
 #### 📘 博客
 更详细的技术分析和教程，欢迎访问我的博客：  
-🌐 **[Joey's Blog](https://joeyblog.net)**  
+🌐 **[Joey Blog](https://joeyblog.net)**  
 
 #### 💬 Telegram 群组
 技术交流、吐槽或者提建议，欢迎加入我们的小圈子！  
