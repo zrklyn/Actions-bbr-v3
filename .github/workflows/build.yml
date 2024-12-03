@@ -13,6 +13,8 @@ permissions:
 jobs:
   check_and_build_kernel:
     runs-on: ubuntu-latest
+    outputs:
+      skip_build: ${{ steps.check_version.outputs.skip_build }}
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -31,24 +33,31 @@ jobs:
           fi
 
       - name: 获取最新内核稳定版本号
+        id: get_version
         run: |
           STABLE_VERSION=$(curl -s https://www.kernel.org | grep -oP '(?<=latest_stable\">)[^<]+')
           echo "最新内核稳定版本为：$STABLE_VERSION"
           echo "STABLE_VERSION=$STABLE_VERSION" >> $GITHUB_ENV
+        env:
+          GITHUB_ENV: $GITHUB_ENV
 
       - name: 检查是否已有该版本内核
+        id: check_version
         run: |
           echo "检查是否已有内核版本 ${{ env.STABLE_VERSION }}..."
           EXISTING_VERSION=$(gh release list | grep -oP '^v\K[0-9.]+(?=\s)' | grep "^${{ env.STABLE_VERSION }}$")
           if [ "$EXISTING_VERSION" == "${{ env.STABLE_VERSION }}" ]; then
-            echo "内核版本 ${{ env.STABLE_VERSION }} 已存在，跳过构建。"
             echo "SKIP_BUILD=true" >> $GITHUB_ENV
+            echo "::set-output name=skip_build::true"
           else
-            echo "内核版本 ${{ env.STABLE_VERSION }} 不存在，将进行构建。"
             echo "SKIP_BUILD=false" >> $GITHUB_ENV
+            echo "::set-output name=skip_build::false"
+          fi
+        env:
+          STABLE_VERSION: ${{ env.STABLE_VERSION }}
 
       - name: 跳过构建检查
-        if: env.SKIP_BUILD == 'true'
+        if: steps.check_version.outputs.skip_build == 'true'
         run: |
           echo "跳过内核构建步骤。"
           exit 0
@@ -114,7 +123,7 @@ jobs:
 
   release_kernel:
     needs: check_and_build_kernel
-    if: env.SKIP_BUILD == 'false'
+    if: needs.check_and_build_kernel.outputs.skip_build == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: 下载 x86_64 内核包
@@ -133,14 +142,15 @@ jobs:
         run: ls -alh ./output/arm64/
       - name: 创建发布版本
         id: create_release
-        uses: actions/create-release@v1.1.4
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: 'v${{ env.STABLE_VERSION }}'
-          release_name: 'Kernel Build v${{ env.STABLE_VERSION }}'
+          name: 'Kernel Build v${{ env.STABLE_VERSION }}'
           draft: false
           prerelease: false
+          generate_release_notes: true
       - name: 打包 x86_64 内核包
         run: |
           cd ./output/x86_64/
