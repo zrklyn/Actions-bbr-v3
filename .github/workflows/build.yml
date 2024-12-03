@@ -35,11 +35,11 @@ jobs:
       - name: 获取最新内核稳定版本号
         id: get_version
         run: |
-          STABLE_VERSION=$(curl -s https://www.kernel.org | grep -oP '(?<=latest_stable\">)[^<]+')
+          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+          cd linux
+          STABLE_VERSION=$(git describe --tags $(git rev-list --tags --max-count=1))
           echo "最新内核稳定版本为：$STABLE_VERSION"
           echo "STABLE_VERSION=$STABLE_VERSION" >> $GITHUB_ENV
-        env:
-          GITHUB_ENV: $GITHUB_ENV
 
       - name: 检查是否已有该版本内核
         id: check_version
@@ -64,7 +64,7 @@ jobs:
 
       - name: 下载内核源码
         run: |
-          git clone --depth 1 --branch v${{ env.STABLE_VERSION }} https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+          git clone --depth 1 --branch ${{ env.STABLE_VERSION }} https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
       - name: 设置交叉编译环境 (仅针对 ARM64)
