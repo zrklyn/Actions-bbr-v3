@@ -75,19 +75,45 @@ case $ACTION in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装 BBR v3！\033[0m"
         echo -e "\033[36m从 GitHub 获取最新版本中...\033[0m"
-        BASE_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/latest"
-        FILE="kernel_release_${ARCH}_latest.tar.gz"
-        wget "$BASE_URL/$FILE" -O "/tmp/$FILE"
-        if [[ $? -ne 0 ]]; then
-            echo -e "\033[31m(T_T) 下载失败，请检查网络连接。\033[0m"
+        RELEASES_URL="https://github.com/byJoey/Actions-bbr-v3/releases/latest"
+        LATEST_RELEASE_PAGE=$(curl -sL "$RELEASES_URL")
+
+        if [[ -z "$LATEST_RELEASE_PAGE" ]]; then
+            echo -e "\033[31m(T_T) 无法获取最新版本信息，请检查网络连接。\033[0m"
             exit 1
         fi
+
+        # 根据架构获取下载链接
+        if [[ "$ARCH" == "aarch64" ]]; then
+            FILE_URL=$(echo "$LATEST_RELEASE_PAGE" | grep -oP '(?<=href=").*kernel_release_arm64_.*?\.tar\.gz(?=")' | head -n 1)
+        elif [[ "$ARCH" == "x86_64" ]]; then
+            FILE_URL=$(echo "$LATEST_RELEASE_PAGE" | grep -oP '(?<=href=").*kernel_release_x86_64_.*?\.tar\.gz(?=")' | head -n 1)
+        fi
+
+        if [[ -z "$FILE_URL" ]]; then
+            echo -e "\033[31m(T_T) 找不到适合您架构的内核文件。\033[0m"
+            exit 1
+        fi
+
+        # 完整下载链接
+        FILE_URL="https://github.com$FILE_URL"
+        FILE_NAME=$(basename "$FILE_URL")
+
+        echo -e "\033[36m下载内核文件：$FILE_NAME...\033[0m"
+        wget "$FILE_URL" -O "/tmp/$FILE_NAME"
+        if [[ $? -ne 0 ]]; then
+            echo -e "\033[31m(T_T) 下载失败，请检查网络。\033[0m"
+            exit 1
+        fi
+
         echo -e "\033[36m解压安装包...\033[0m"
-        tar -xf "/tmp/$FILE" -C /tmp/
+        tar -xf "/tmp/$FILE_NAME" -C /tmp/
         sudo dpkg -i /tmp/linux-*.deb
-        rm -rf /tmp/linux-*.deb /tmp/$FILE
-        echo -e "\033[36m更新 GRUB...\033[0m"
+        rm -rf /tmp/linux-*.deb /tmp/"$FILE_NAME"
+
+        echo -e "\033[36m更新 GRUB 配置...\033[0m"
         sudo update-grub
+
         echo -e "\033[1;32m(＾▽＾) 安装完成，请重启系统加载新内核！\033[0m"
         ;;
 
