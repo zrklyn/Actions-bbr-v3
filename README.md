@@ -24,7 +24,7 @@
 
 1. **下载脚本**  
    ```bash
-   wget [https://your-cool-repo-link/bbr-script.sh](https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/install.sh) -O install.sh
+   wget https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/install.sh
    ```
 
 2. **赋予执行权限**  
