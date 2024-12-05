@@ -3,7 +3,7 @@
 # 检测系统架构
 ARCH=$(uname -m)
 if [[ "$ARCH" != "aarch64" && "$ARCH" != "x86_64" ]]; then
-    echo -e "\033[31m(￣\u25A1￣")哇！这个脚本只支持 ARM 和 x86_64 架构哦~ 您的系统架构是：$ARCH\033[0m"
+    echo -e "\033[31m(￣▁￣) 哇！这个脚本只支持 ARM 和 x86_64 架构哦~ 您的系统架构是：$ARCH\033[0m"
     exit 1
 fi
 
@@ -27,10 +27,9 @@ clean_sysctl_conf() {
 ask_to_save() {
     echo -n -e "\033[36m(｡♥‿♥｡) 要将这些配置永久保存到 $SYSCTL_CONF 吗？(y/n): \033[0m"
     read -r SAVE
-    
+
     if [[ "$SAVE" == "y" || "$SAVE" == "Y" ]]; then
         clean_sysctl_conf
-
         echo "net.core.default_qdisc=$QDISC" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         echo "net.ipv4.tcp_congestion_control=$ALGO" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         sudo sysctl --system > /dev/null
@@ -75,136 +74,73 @@ read -r ACTION
 case $ACTION in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装 BBR v3！\033[0m"
-        
-        # 检查是否已经安装了旧版本并卸载
-        echo -e "\033[36m正在检查旧版内核...( •̀ᴗ•́ )\033[0m"
-        if dpkg -l | grep -q "joeyblog"; then
-            echo -e "\033[36m发现旧版本内核，正在卸载~\033[0m"
-            sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
+        echo -e "\033[36m从 GitHub 获取最新版本中...\033[0m"
+        BASE_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/latest"
+        FILE="kernel_release_${ARCH}_latest.tar.gz"
+        wget "$BASE_URL/$FILE" -O "/tmp/$FILE"
+        if [[ $? -ne 0 ]]; then
+            echo -e "\033[31m(T_T) 下载失败，请检查网络连接。\033[0m"
+            exit 1
         fi
-
-        # 根据架构设置 GitHub 仓库下载链接
-        if [[ "$ARCH" == "aarch64" ]]; then
-            BASE_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/latest"
-            FILES=(
-    "kernel_release_arm64_*.tar.gz"
-            )
-        elif [[ "$ARCH" == "x86_64" ]]; then
-            BASE_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/latest"
-            FILES=(
-    "kernel_release_x86_64_*.tar.gz"
-            )
-        fi
-
-        for FILE in "${FILES[@]}"; do
-            echo -e "\033[36m(☆ω☆) 从 GitHub 下载 $FILE 中...\033[0m"
-            wget "$BASE_URL/$FILE" -O "/tmp/$FILE"
-            if [[ $? -ne 0 ]]; then
-                echo -e "\033[31m(T_T) 下载 $FILE 失败了哦~\033[0m" >&2
-                exit 1
-            fi
-        done
-
-        echo -e "\033[36m( •̀ ω •́ )✧ 安装文件中...\033[0m"
+        echo -e "\033[36m解压安装包...\033[0m"
+        tar -xf "/tmp/$FILE" -C /tmp/
         sudo dpkg -i /tmp/linux-*.deb
-
-        echo -e "\033[36m清理下载的临时文件... ( ˘･з･)\033[0m"
-        rm /tmp/linux-*.deb
-
-        echo -e "\033[36m正在更新 GRUB 配置...\033[0m"
+        rm -rf /tmp/linux-*.deb /tmp/$FILE
+        echo -e "\033[36m更新 GRUB...\033[0m"
         sudo update-grub
-
-        echo -e "\033[1;32m(●'◡'●) 安装完成啦，请重启系统加载新内核吧！\033[0m"
+        echo -e "\033[1;32m(＾▽＾) 安装完成，请重启系统加载新内核！\033[0m"
         ;;
 
     2)
-        echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
-        BBR_INFO=$(sudo modinfo tcp_bbr)
-        BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
-
-        if [[ "$BBR_VERSION" == *"3"* ]]; then
-            echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ BBR v3 已安装~\033[0m"
+        echo -e "\033[1;32m检查是否为 BBR v3...\033[0m"
+        BBR_INFO=$(modinfo tcp_bbr 2>/dev/null)
+        if [[ "$BBR_INFO" == *"BBR v3"* ]]; then
+            echo -e "\033[1;32mBBR v3 已安装~\033[0m"
         else
-            echo -e "\033[31m(￣﹃￣) 哎呀，BBR v3 没有找到，当前版本是：$BBR_VERSION\033[0m"
+            echo -e "\033[31m没有找到 BBR v3，当前内核模块信息：\033[0m"
+            echo "$BBR_INFO"
         fi
         ;;
 
     3)
-        echo -e "\033[1;32m(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ 选择 BBR + FQ 加速！\033[0m"
+        echo -e "\033[1;32m选择 BBR + FQ 加速...\033[0m"
         ALGO="bbr"
         QDISC="fq"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + FQ 已经设置好啦！\033[0m"
         ;;
 
     4)
-        echo -e "\033[1;32m٩(•‿•)۶ 选择 BBR + FQ_PIE 加速！\033[0m"
+        echo -e "\033[1;32m选择 BBR + FQ_PIE 加速...\033[0m"
         ALGO="bbr"
         QDISC="fq_pie"
-
-        # 尝试加载 pie 模块
-        if sudo modprobe pie; then
-            echo -e "\033[1;32m模块 pie 已成功加载！\033[0m"
-        else
-            echo -e "\033[31m模块 pie 未找到或无法加载，请检查系统是否支持该模块。\033[0m"
-        fi
-
+        modprobe pie || echo -e "\033[31m未找到 pie 模块，可能无法使用 fq_pie。\033[0m"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + FQ_PIE 已经设置好啦！\033[0m"
         ;;
 
     5)
-        echo -e "\033[1;32m(ﾉ≧∀≦)ﾉ 选择 BBR + CAKE 加速！\033[0m"
+        echo -e "\033[1;32m选择 BBR + CAKE 加速...\033[0m"
         ALGO="bbr"
         QDISC="cake"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + CAKE 已经设置好啦！\033[0m"
         ;;
 
     6)
-        echo -e "\033[1;32m✧(≖ ◡ ≖✿) 开启或关闭 BBR 加速！\033[0m"
-        echo -e "\033[36m当前 BBR 状态：$CURRENT_ALGO\033[0m"
+        echo -e "\033[1;32m开启或关闭 BBR...\033[0m"
         if [[ "$CURRENT_ALGO" == "bbr" ]]; then
-            echo -e "\033[1;32mヽ(・∀・)ノ BBR 已开启~\033[0m"
-            echo -n -e "\033[36m(｡･ω･｡) 是否关闭 BBR 并恢复默认算法 (cubic)? (y/n): \033[0m"
-            read -r CLOSE_BBR
-            if [[ "$CLOSE_BBR" == "y" || "$CLOSE_BBR" == "Y" ]]; then
-                sudo sysctl -w net.ipv4.tcp_congestion_control=cubic
-                echo -e "\033[1;32m(☆^ー^☆) BBR 已关闭，恢复为 cubic~\033[0m"
-            else
-                echo -e "\033[33m(⌒_⌒;) 好吧，BBR 依然保持开启呢~\033[0m"
-            fi
+            echo -e "\033[1;32m当前已启用 BBR，切换为 cubic...\033[0m"
+            sudo sysctl -w net.ipv4.tcp_congestion_control=cubic
         else
-            echo -e "\033[31m唔...BBR 未开启 (T_T)\033[0m"
-            echo -n -e "\033[36m(｡･ω･｡) 是否开启 BBR? (y/n): \033[0m"
-            read -r OPEN_BBR
-            if [[ "$OPEN_BBR" == "y" || "$OPEN_BBR" == "Y" ]]; then
-                sudo sysctl -w net.ipv4.tcp_congestion_control=bbr
-                echo -e "\033[1;32m(☆^ー^☆) BBR 已开启~\033[0m"
-            else
-                echo -e "\033[33m(⌒_⌒;) 好吧，BBR 依然保持关闭呢~\033[0m"
-            fi
+            echo -e "\033[1;32m当前未启用 BBR，切换为 BBR...\033[0m"
+            sudo sysctl -w net.ipv4.tcp_congestion_control=bbr
         fi
         ;;
 
     7)
-        echo -e "\033[1;32mヽ(・∀・)ノ 您选择了卸载全部包含 joeyblog 的内核！\033[0m"
-        echo -n -e "\033[36m(｡･ω･｡) 确定卸载所有包含 joeyblog 的内核吗？这会影响系统的运行哦！(y/n): \033[0m"
-        read -r CONFIRM
-        if [[ "$CONFIRM" == "y" || "$CONFIRM" == "Y" ]]; then
-            if dpkg -l | grep -q "joeyblog"; then
-                echo -e "\033[36m发现包含 joeyblog 的内核，正在卸载~\033[0m"
-                sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
-                echo -e "\033[1;32m(＾▽＾) 内核已卸载，请安装新内核并重启系统~\033[0m"
-            else
-                echo -e "\033[33m(⌒_⌒;) 没有找到包含 joeyblog 的内核呢~\033[0m"
-            fi
-        else
-            echo -e "\033[33m(⌒_⌒;) 好吧，内核保留~\033[0m"
-        fi
+        echo -e "\033[1;32m卸载包含 joeyblog 的内核...\033[0m"
+        dpkg -l | grep joeyblog | awk '{print $2}' | xargs sudo apt remove --purge -y
         ;;
 
     *)
-        echo -e "\033[31m(￣▽￣)ゞ 哎呀！选项无效呢~\033[0m"
+        echo -e "\033[31m无效选项，请重新运行脚本选择正确操作。\033[0m"
         ;;
 esac
