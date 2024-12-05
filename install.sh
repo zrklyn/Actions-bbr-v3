@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# 检查并安装必要的依赖
+REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "tar" "sed" "sysctl" "update-grub")
+for cmd in "${REQUIRED_CMDS[@]}"; do
+    if ! command -v $cmd &> /dev/null; then
+        echo -e "\033[31m缺少依赖：$cmd，正在安装...\033[0m"
+        sudo apt-get update && sudo apt-get install -y $cmd
+    fi
+done
+
 # 检测系统架构
 ARCH=$(uname -m)
 if [[ "$ARCH" != "aarch64" && "$ARCH" != "x86_64" ]]; then
