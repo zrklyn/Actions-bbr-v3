@@ -81,7 +81,7 @@ print_separator
 echo -n -e "\033[36m请选择一个操作 (1-7) (｡･ω･｡): \033[0m"
 read -r ACTION
 
-case $ACTION in
+case "$ACTION" in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装 BBR v3！\033[0m"
         
