@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    name: 编译内核（Docker 容器，Debian 12）
+    name: 编译内核（ARM64 和 x86_64）
     runs-on: ubuntu-latest
     container:
       image: debian:12
@@ -19,13 +19,13 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v3
 
-      - name: 安装编译所需依赖
+      - name: 安装必需的依赖
         run: |
           apt-get update
           apt-get install -y \
             git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
             debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
-            gcc-aarch64-linux-gnu
+            gcc-aarch64-linux-gnu cpio
 
       - name: 获取最新内核版本
         id: kernel_version
@@ -46,18 +46,20 @@ jobs:
           REPO="byJoey/Actions-bbr-v3"
           LATEST_GITHUB_RELEASE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             https://api.github.com/repos/$REPO/releases | jq -r '[.[] | select(.prerelease == false)][0].tag_name')
-          GITHUB_RELEASE_CLEANED=${LATEST_GITHUB_RELEASE#v}
-          echo "GitHub 最新发布版本为：$GITHUB_RELEASE_CLEANED"
-          echo "::set-output name=github_version::$GITHUB_RELEASE_CLEANED"
+          echo "GitHub 最新发布版本为：${LATEST_GITHUB_RELEASE}"
+          echo "::set-output name=github_version::${LATEST_GITHUB_RELEASE}"
 
       - name: 比较版本
         run: |
-          if [[ "${{ steps.github_release.outputs.github_version }}" == "${{ steps.kernel_version.outputs.version }}" ]]; then
+          if [[ "${{ steps.github_release.outputs.github_version }}" == "v${{ steps.kernel_version.outputs.version }}" ]]; then
             echo "GitHub 发布的版本与最新内核版本一致，无需更新。"
             exit 0
-          else
-            echo "版本不一致，继续执行后续步骤。"
           fi
+          echo "版本不一致，继续执行后续步骤。"
+
+      - name: 清理旧文件
+        run: |
+          rm -rf linux kernel_release kernel_release_arm64.tar.gz kernel_release_x86_64.tar.gz
 
       - name: 编译 ARM64 内核
         run: |
