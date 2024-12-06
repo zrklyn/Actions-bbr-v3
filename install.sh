@@ -125,12 +125,14 @@ case "$ACTION" in
         ;;
 
     2)
-        echo -e "\033[1;32m(｡･ω･｡) 正在检查是否为 BBR v3...\033[0m"
-        BBR_VERSION=$(sysctl net.ipv4.tcp_available_congestion_control | grep -o 'bbr3')
-        if [[ "$BBR_VERSION" == "bbr3" ]]; then
-            echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ 当前系统已启用 BBR v3！\033[0m"
+        echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
+        BBR_INFO=$(sudo modinfo tcp_bbr)
+        BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
+
+        if [[ "$BBR_VERSION" == *"3"* ]]; then
+            echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ BBR v3 已安装~\033[0m"
         else
-            echo -e "\033[31m(￣﹃￣) 哎呀，当前系统没有启用 BBR v3。\033[0m"
+            echo -e "\033[31m(￣﹃￣) 哎呀，BBR v3 没有找到，当前版本是：$BBR_VERSION\033[0m"
         fi
         ;;
 
@@ -144,41 +146,4 @@ case "$ACTION" in
 
     4)
         echo -e "\033[1;32m٩(•‿•)۶ 使用 BBR + FQ_PIE 加速！\033[0m"
-        ALGO="bbr"
-        QDISC="fq_pie"
-        ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + FQ_PIE 已经设置好啦！\033[0m"
-        ;;
-
-    5)
-        echo -e "\033[1;32m(ﾉ≧∀≦)ﾉ 使用 BBR + CAKE 加速！\033[0m"
-        ALGO="bbr"
-        QDISC="cake"
-        ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + CAKE 已经设置好啦！\033[0m"
-        ;;
-
-    6)
-        echo -e "\033[1;32m✧(≖ ◡ ≖✿) 开启或关闭 BBR 加速！\033[0m"
-        if [[ "$CURRENT_ALGO" == "bbr" ]]; then
-            echo -e "\033[1;32mヽ(・∀・)ノ BBR 已开启~\033[0m"
-        else
-            echo -e "\033[31m唔...BBR 未开启 (T_T)\033[0m"
-        fi
-        ;;
-
-    7)
-        echo -e "\033[1;32mヽ(・∀・)ノ 您选择了卸载 BBR 内核！\033[0m"
-        echo -e "\033[36m正在卸载包含 joeyblog 的内核...( •̀ᴗ•́ )\033[0m"
-        if dpkg -l | grep -q "joeyblog"; then
-            sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
-            echo -e "\033[1;32m(＾▽＾) 内核已卸载，请安装新内核并重启系统~\033[0m"
-        else
-            echo -e "\033[33m(⌒_⌒;) 没有找到包含 joeyblog 的内核呢~\033[0m"
-        fi
-        ;;
-
-    *)
-        echo -e "\033[31m(￣▽￣)ゞ 无效的选项，请输入 1-7 之间的数字哦~\033[0m"
-        ;;
-esac
+        ALGO="
