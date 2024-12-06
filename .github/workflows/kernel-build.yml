@@ -1,4 +1,4 @@
-name: 自动内核编译与BBR v3
+name: 自动内核编译与BBR v3安装
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
       - main
   schedule:
     - cron: '0 0 * * *' # 每天 UTC 时间 00:00 运行（北京时间 08:00）
-
   workflow_dispatch: # 手动触发
 
 jobs:
@@ -21,13 +20,16 @@ jobs:
       - name: 设置权限
         run: sudo chmod -R 777 /home/runner/work
 
-      - name: 安装依赖
+      - name: 安装通用依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
-            debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
-            gcc-aarch64-linux-gnu gcc-multilib
+            debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl
+
+      - name: 安装 ARM64 交叉编译工具
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: 获取最新内核版本
         id: kernel_version
@@ -60,7 +62,7 @@ jobs:
             echo "版本不一致，继续执行后续步骤。"
           fi
 
-      - name: 编译内核（ARM64 和 x86_64）
+      - name: 编译 ARM64 内核
         run: |
           echo "下载内核源码..."
           git clone --branch v${{ steps.kernel_version.outputs.version }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
@@ -90,6 +92,8 @@ jobs:
           mkdir -p ../kernel_release/arm64
           mv ../*.deb ../kernel_release/arm64/
 
+      - name: 编译 x86_64 内核
+        run: |
           echo "重新拉取内核源码..."
           cd ..
           rm -rf linux
