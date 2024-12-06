@@ -69,8 +69,7 @@ echo -e "\033[33m 2. 🔍 检查是否为 BBR v3\033[0m"
 echo -e "\033[33m 3. ⚡ 使用 BBR + FQ 加速\033[0m"
 echo -e "\033[33m 4. ⚡ 使用 BBR + FQ_PIE 加速\033[0m"
 echo -e "\033[33m 5. ⚡ 使用 BBR + CAKE 加速\033[0m"
-echo -e "\033[33m 6. 🔧 开启或关闭 BBR\033[0m"
-echo -e "\033[33m 7. 🗑️  卸载\033[0m"
+echo -e "\033[33m 6. 🗑️  卸载\033[0m"
 print_separator
 echo -e "\033[34m作者：Joey ✧٩(◕‿◕｡)۶✧\033[0m"
 echo -e "\033[34m博客：https://joeyblog.net\033[0m"
@@ -78,7 +77,7 @@ echo -e "\033[34m反馈群组：https://t.me/+ft-zI76oovgwNmRh\033[0m"
 print_separator
 
 # 提示用户选择操作
-echo -n -e "\033[36m请选择一个操作 (1-7) (｡･ω･｡): \033[0m"
+echo -n -e "\033[36m请选择一个操作 (1-6) (｡･ω･｡): \033[0m"
 read -r ACTION
 
 case "$ACTION" in
@@ -146,4 +145,32 @@ case "$ACTION" in
 
     4)
         echo -e "\033[1;32m٩(•‿•)۶ 使用 BBR + FQ_PIE 加速！\033[0m"
-        ALGO="
+        ALGO="bbr"
+        QDISC="fq_pie"
+        ask_to_save
+        echo -e "\033[1;32m(＾▽＾) BBR + FQ_PIE 已经设置好啦！\033[0m"
+        ;;
+
+    5)
+        echo -e "\033[1;32m(ﾉ≧∀≦)ﾉ 使用 BBR + CAKE 加速！\033[0m"
+        ALGO="bbr"
+        QDISC="cake"
+        ask_to_save
+        echo -e "\033[1;32m(＾▽＾) BBR + CAKE 已经设置好啦！\033[0m"
+        ;;
+
+    6)
+        echo -e "\033[1;32mヽ(・∀・)ノ 您选择了卸载 BBR 内核！\033[0m"
+        echo -e "\033[36m正在卸载包含 joeyblog 的内核...( •̀ᴗ•́ )\033[0m"
+        if dpkg -l | grep -q "joeyblog"; then
+            sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
+            echo -e "\033[1;32m(＾▽＾) 内核已卸载，请安装新内核并重启系统~\033[0m"
+        else
+            echo -e "\033[33m(⌒_⌒;) 没有找到包含 joeyblog 的内核呢~\033[0m"
+        fi
+        ;;
+
+    *)
+        echo -e "\033[31m(￣▽￣)ゞ 无效的选项，请输入 1-6 之间的数字哦~\033[0m"
+        ;;
+esac
