@@ -64,7 +64,7 @@ print_separator
 
 # 选项部分美化
 echo -e "\033[1;33m╭( ･ㅂ･)و ✧ 你可以选择以下操作哦：\033[0m"
-echo -e "\033[33m 1. 🛠️  安装 BBR v3\033[0m"
+echo -e "\033[33m 1. 🛠️  安装或更新 BBR v3\033[0m"
 echo -e "\033[33m 2. 🔍 检查是否为 BBR v3\033[0m"
 echo -e "\033[33m 3. ⚡ 使用 BBR + FQ 加速\033[0m"
 echo -e "\033[33m 4. ⚡ 使用 BBR + FQ_PIE 加速\033[0m"
