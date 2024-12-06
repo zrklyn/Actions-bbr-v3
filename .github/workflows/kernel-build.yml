@@ -5,31 +5,27 @@ on:
     branches:
       - main
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 时间 00:00 运行（北京时间 08:00）
-  workflow_dispatch: # 手动触发
+    - cron: '0 0 * * *' # 每天 UTC 时间 00:00 自动运行
+  workflow_dispatch: # 手动触发支持
 
 jobs:
   build:
-    name: 编译内核（单容器交叉编译）
+    name: 编译内核（Debian 12 容器）
     runs-on: ubuntu-latest
+    container:
+      image: debian:12
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
 
-      - name: 设置权限
-        run: sudo chmod -R 777 /home/runner/work
-
-      - name: 安装通用依赖
+      - name: 安装编译所需依赖
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
             git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
-            debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl
-
-      - name: 安装 ARM64 交叉编译工具
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+            debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
+            gcc-aarch64-linux-gnu
 
       - name: 获取最新内核版本
         id: kernel_version
@@ -39,28 +35,8 @@ jobs:
             echo "无法获取最新内核版本，请检查网络或 kernel.org 是否可访问。"
             exit 1
           fi
+          echo "最新内核版本为：$LATEST_KERNEL_VERSION"
           echo "::set-output name=version::$LATEST_KERNEL_VERSION"
-
-      - name: 获取 GitHub 最新发布版本
-        id: github_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          REPO="byJoey/Actions-bbr-v3"
-          LATEST_GITHUB_RELEASE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/$REPO/releases | jq -r '[.[] | select(.prerelease == false)][0].tag_name')
-          GITHUB_RELEASE_CLEANED=${LATEST_GITHUB_RELEASE#v}
-          echo "::set-output name=github_version::$GITHUB_RELEASE_CLEANED"
-
-      - name: 比较内核版本与 GitHub 版本
-        id: compare_versions
-        run: |
-          if [[ "${{ steps.github_release.outputs.github_version }}" == "${{ steps.kernel_version.outputs.version }}" ]]; then
-            echo "GitHub 发布的版本与最新内核版本一致，无需更新。"
-            exit 0
-          else
-            echo "版本不一致，继续执行后续步骤。"
-          fi
 
       - name: 编译 ARM64 内核
         run: |
@@ -68,7 +44,7 @@ jobs:
           git clone --branch v${{ steps.kernel_version.outputs.version }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
-          echo "获取最新内核版本..."
+          echo "获取当前内核版本..."
           KERNEL_VERSION=$(make kernelversion)
           echo "当前内核版本为：$KERNEL_VERSION"
 
@@ -82,12 +58,11 @@ jobs:
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          echo "编译 ARM64 内核..."
+          echo "配置内核..."
           curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/arm64.config -o .config
-          yes "" | make oldconfig
-          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
-          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
-          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          make ARCH=arm64 olddefconfig
+
+          echo "编译 ARM64 内核..."
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog-joeyblog.net bindeb-pkg -j$(nproc)
           mkdir -p ../kernel_release/arm64
           mv ../*.deb ../kernel_release/arm64/
@@ -100,7 +75,7 @@ jobs:
           git clone --branch v${{ steps.kernel_version.outputs.version }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
-          echo "获取最新内核版本..."
+          echo "获取当前内核版本..."
           KERNEL_VERSION=$(make kernelversion)
           echo "当前内核版本为：$KERNEL_VERSION"
 
@@ -114,12 +89,11 @@ jobs:
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          echo "编译 x86_64 内核..."
+          echo "配置内核..."
           curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/x86-64.config -o .config
-          yes "" | make oldconfig
-          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
-          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
-          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          make ARCH=x86_64 olddefconfig
+
+          echo "编译 x86_64 内核..."
           make ARCH=x86_64 LOCALVERSION=-joeyblog-joeyblog.net bindeb-pkg -j$(nproc)
           mkdir -p ../kernel_release/x86_64
           mv ../*.deb ../kernel_release/x86_64/
