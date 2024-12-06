@@ -9,90 +9,119 @@ on:
   workflow_dispatch: # 支持手动触发
 
 jobs:
-  build-arm64:
-    name: 编译 ARM64 内核
+  build:
+    name: 编译内核 (ARM64 和 x86_64)
     runs-on: ubuntu-latest
-    container:
-      image: debian:12
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
 
-      - name: 安装 ARM64 依赖
+      - name: 设置 ARM64 环境并编译内核
         run: |
-          apt-get update
-          apt-get install -y \
-            git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
+          echo "使用 debian:12 容器编译 ARM64 内核..."
+          docker run --rm -v $(pwd):/workspace -w /workspace debian:12 bash -c "
+            apt-get update &&
+            apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
             debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
-            gcc-12-aarch64-linux-gnu cpio pkg-config python3 python3-distutils
+            gcc-12-aarch64-linux-gnu cpio pkg-config python3 python3-distutils &&
+            
+            echo '获取最新内核版本...' &&
+            LATEST_KERNEL_VERSION=\$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version') &&
+            echo '最新内核版本为：\$LATEST_KERNEL_VERSION' &&
+            
+            echo '清理旧文件...' &&
+            rm -rf linux kernel_release kernel_release_arm64.tar.gz &&
+            
+            echo '下载内核源码...' &&
+            git clone --branch v\$LATEST_KERNEL_VERSION --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git &&
+            cd linux &&
+            
+            echo '获取当前内核版本...' &&
+            KERNEL_VERSION=\$(make kernelversion) &&
+            echo '当前内核版本为：\$KERNEL_VERSION' &&
+            
+            echo '添加 BBR v3 源码仓库并拉取代码...' &&
+            git remote add google-bbr https://github.com/google/bbr.git &&
+            git fetch google-bbr &&
+            git checkout google-bbr/v3 &&
+            
+            echo '修改 Makefile 版本信息...' &&
+            sed -i \"s/^VERSION = .*/VERSION = \${KERNEL_VERSION%%.*}/\" Makefile &&
+            sed -i \"s/^PATCHLEVEL = .*/PATCHLEVEL = \$(echo \$KERNEL_VERSION | cut -d. -f2)/\" Makefile &&
+            sed -i \"s/^SUBLEVEL = .*/SUBLEVEL = \$(echo \$KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/\" Makefile &&
+            
+            echo '配置 ARM64 内核...' &&
+            curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o .config &&
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig &&
+            sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config &&
+            echo 'CONFIG_SYSTEM_TRUSTED_KEYS=\"\"' >> .config &&
+            sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config &&
+            
+            echo '编译 ARM64 内核...' &&
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog bindeb-pkg -j\$(nproc) &&
+            
+            echo '保存编译结果...' &&
+            mkdir -p ../kernel_release/arm64 &&
+            mv ../*.deb ../kernel_release/arm64/ &&
+            
+            echo '清理临时文件...' &&
+            cd .. &&
+            rm -rf linux
+          "
 
-      - name: 编译 ARM64 内核
+      - name: 设置 x86_64 环境并编译内核
         run: |
-          echo "下载内核源码..."
-          git clone --branch v6.1 --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-          cd linux
-
-          echo "配置内核..."
-          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o .config
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
-          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
-
-          echo "编译 ARM64 内核..."
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog bindeb-pkg -j$(nproc)
-
-          echo "保存结果..."
-          mkdir -p ../kernel_release/arm64
-          mv ../*.deb ../kernel_release/arm64/
-
-  build-x86_64:
-    name: 编译 x86_64 内核
-    runs-on: ubuntu-latest
-    container:
-      image: debian:12
-
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
-
-      - name: 安装 x86_64 依赖
-        run: |
-          apt-get update
-          apt-get install -y \
-            git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
+          echo "使用 debian:12 容器编译 x86_64 内核..."
+          docker run --rm -v $(pwd):/workspace -w /workspace debian:12 bash -c "
+            apt-get update &&
+            apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync \
             debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
-            gcc-multilib cpio pkg-config python3 python3-distutils
-
-      - name: 编译 x86_64 内核
-        run: |
-          echo "下载内核源码..."
-          git clone --branch v6.1 --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-          cd linux
-
-          echo "配置内核..."
-          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o .config
-          make ARCH=x86_64 olddefconfig
-          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
-          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
-
-          echo "编译 x86_64 内核..."
-          make ARCH=x86_64 LOCALVERSION=-joeyblog bindeb-pkg -j$(nproc)
-
-          echo "保存结果..."
-          mkdir -p ../kernel_release/x86_64
-          mv ../*.deb ../kernel_release/x86_64/
-
-  upload:
-    name: 上传到 GitHub Releases
-    needs:
-      - build-arm64
-      - build-x86_64
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v3
+            gcc-multilib cpio pkg-config python3 python3-distutils &&
+            
+            echo '获取最新内核版本...' &&
+            LATEST_KERNEL_VERSION=\$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version') &&
+            echo '最新内核版本为：\$LATEST_KERNEL_VERSION' &&
+            
+            echo '清理旧文件...' &&
+            rm -rf linux kernel_release kernel_release_x86_64.tar.gz &&
+            
+            echo '下载内核源码...' &&
+            git clone --branch v\$LATEST_KERNEL_VERSION --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git &&
+            cd linux &&
+            
+            echo '获取当前内核版本...' &&
+            KERNEL_VERSION=\$(make kernelversion) &&
+            echo '当前内核版本为：\$KERNEL_VERSION' &&
+            
+            echo '添加 BBR v3 源码仓库并拉取代码...' &&
+            git remote add google-bbr https://github.com/google/bbr.git &&
+            git fetch google-bbr &&
+            git checkout google-bbr/v3 &&
+            
+            echo '修改 Makefile 版本信息...' &&
+            sed -i \"s/^VERSION = .*/VERSION = \${KERNEL_VERSION%%.*}/\" Makefile &&
+            sed -i \"s/^PATCHLEVEL = .*/PATCHLEVEL = \$(echo \$KERNEL_VERSION | cut -d. -f2)/\" Makefile &&
+            sed -i \"s/^SUBLEVEL = .*/SUBLEVEL = \$(echo \$KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/\" Makefile &&
+            
+            echo '配置 x86_64 内核...' &&
+            curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o .config &&
+            make ARCH=x86_64 olddefconfig &&
+            sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config &&
+            echo 'CONFIG_SYSTEM_TRUSTED_KEYS=\"\"' >> .config &&
+            sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config &&
+            
+            echo '编译 x86_64 内核...' &&
+            make ARCH=x86_64 LOCALVERSION=-joeyblog bindeb-pkg -j\$(nproc) &&
+            
+            echo '保存编译结果...' &&
+            mkdir -p ../kernel_release/x86_64 &&
+            mv ../*.deb ../kernel_release/x86_64/ &&
+            
+            echo '清理临时文件...' &&
+            cd .. &&
+            rm -rf linux
+          "
 
       - name: 上传到 GitHub Releases
         uses: softprops/action-gh-release@v1
@@ -103,4 +132,4 @@ jobs:
             kernel_release/arm64/*.deb
             kernel_release/x86_64/*.deb
           body: |
-            自动生成的内核包，支持 ARM64 和 x86_64。
+            自动生成的内核包，支持 ARM64 和 x86_64 架构。
