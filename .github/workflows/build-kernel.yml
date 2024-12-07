@@ -1,0 +1,132 @@
+name: Build Kernel with BBR v3
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-22.04
+    steps:
+      # 检出代码
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      # 安装依赖
+      - name: Install build dependencies
+        run: |
+          echo "安装构建依赖..."
+          sudo apt update
+          sudo apt install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl
+
+      # 获取最新内核版本
+      - name: Fetch latest kernel version
+        id: kernel_version
+        run: |
+          echo "获取内核源码仓库的最新稳定版本..."
+          LATEST_KERNEL_VERSION=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git | awk -F'/' '{print $3}' | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | grep -v -E "rc|test" | sort -V | tail -1)
+          echo "最新内核版本: $LATEST_KERNEL_VERSION"
+          echo "kernel_version=$LATEST_KERNEL_VERSION" >> $GITHUB_ENV
+
+      # 获取 GitHub 上的最新发布版本
+      - name: Fetch latest GitHub release
+        id: github_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "获取 GitHub 最新发布版本..."
+          REPO="byJoey/Actions-bbr-v3"
+          LATEST_GITHUB_RELEASE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/$REPO/releases | jq -r '[.[] | select(.prerelease == false)][0].tag_name')
+          echo "GitHub 最新版本: $LATEST_GITHUB_RELEASE"
+          echo "github_release=$LATEST_GITHUB_RELEASE" >> $GITHUB_ENV
+
+      # 比较版本号
+      - name: Compare versions
+        if: env.kernel_version == env.github_release
+        run: |
+          echo "内核版本与 GitHub 版本一致，无需更新。"
+          exit 0
+
+      # 拉取内核源码并获取版本号
+      - name: Fetch Kernel Source and Get Version
+        run: |
+          echo "拉取内核源码..."
+          git clone --branch ${{ env.kernel_version }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+          cd linux
+          echo "获取内核版本..."
+          KERNEL_VERSION=$(make kernelversion)
+          echo "内核版本: $KERNEL_VERSION"
+          echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_ENV
+
+      # 添加 BBR 并更新版本信息
+      - name: Add BBR and Update Makefile
+        run: |
+          cd linux
+          echo "添加 BBR v3 源码..."
+          git remote add google-bbr https://github.com/google/bbr.git
+          git fetch google-bbr
+          git checkout google-bbr/v3
+          echo "更新 Makefile 版本信息..."
+          sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
+          sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
+          sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
+
+      # 编译 ARM64 内核
+      - name: Build ARM64 Kernel
+        run: |
+          cd linux
+          echo "下载 ARM64 配置文件..."
+          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o .config
+          yes "" | make oldconfig
+          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
+          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
+          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog bindeb-pkg -j$(nproc)
+          mkdir -p ../kernel_release/arm64
+          mv ../linux-image-*.deb ../linux-headers-*.deb ../kernel_release/arm64/
+          cd ..
+          tar -czvf kernel_release_arm64_${{ env.kernel_version }}.tar.gz -C kernel_release/arm64 .
+
+      # 编译 x86_64 内核
+      - name: Build x86_64 Kernel
+        run: |
+          cd linux
+          echo "下载 x86_64 配置文件..."
+          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o .config
+          yes "" | make oldconfig
+          sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
+          echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
+          sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          make ARCH=x86_64 CROSS_COMPILE=x86_64-linux-gnu- LOCALVERSION=-joeyblog bindeb-pkg -j$(nproc)
+          mkdir -p ../kernel_release/x86_64
+          mv ../linux-image-*.deb ../linux-headers-*.deb ../kernel_release/x86_64/
+          cd ..
+          tar -czvf kernel_release_x86_64_${{ env.kernel_version }}.tar.gz -C kernel_release/x86_64 .
+
+      # 上传到 GitHub Releases
+      - name: Upload Kernel to GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="byJoey/Actions-bbr-v3"
+          TAG="${{ env.kernel_version }}"
+          RELEASE_NAME="Kernel ${{ env.kernel_version }} (arm64 & x86_64)"
+          echo "创建 GitHub 发行..."
+          RELEASE_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\": \"$TAG\", \"name\": \"$RELEASE_NAME\", \"body\": \"Auto-built kernel with BBR v3\"}" \
+            https://api.github.com/repos/$REPO/releases)
+          UPLOAD_URL=$(echo $RELEASE_RESPONSE | jq -r .upload_url | sed -e "s/{?name,label}//")
+          echo "上传 ARM64 内核包..."
+          curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @kernel_release_arm64_${{ env.kernel_version }}.tar.gz \
+            "$UPLOAD_URL?name=kernel_release_arm64_${{ env.kernel_version }}.tar.gz"
+          echo "上传 x86_64 内核包..."
+          curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @kernel_release_x86_64_${{ env.kernel_version }}.tar.gz \
+            "$UPLOAD_URL?name=kernel_release_x86_64_${{ env.kernel_version }}.tar.gz"
