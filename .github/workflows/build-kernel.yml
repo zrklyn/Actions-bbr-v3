@@ -68,6 +68,7 @@ jobs:
             echo "下载 x86_64 配置文件..."
             curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o .config
           fi
+          # 使用非交互方式填充配置
           yes "" | make oldconfig
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
