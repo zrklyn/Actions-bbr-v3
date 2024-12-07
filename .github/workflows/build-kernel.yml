@@ -1,4 +1,4 @@
-name: 编译并发布内核
+name: Build and Release Kernel
 
 on:
   push:
@@ -7,8 +7,9 @@ on:
   workflow_dispatch: # 支持手动触发工作流
 
 jobs:
-  # 编译任务
-  编译内核:
+  # 编译内核任务
+  build-kernel:
+    name: 编译内核
     strategy:
       matrix:
         arch: [x86_64, arm64] # 定义目标架构
@@ -97,8 +98,9 @@ jobs:
             kernel_release_x86_64.tar.gz
 
   # 发布任务
-  发布内核:
-    needs: 编译内核 # 依赖编译内核任务完成
+  release-kernel:
+    name: 发布内核
+    needs: build-kernel # 依赖编译内核任务完成
     runs-on: ubuntu-22.04
     steps:
       # 下载 ARM64 构建产物
