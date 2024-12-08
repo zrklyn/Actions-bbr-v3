@@ -126,13 +126,21 @@ case "$ACTION" in
 
     2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
-        BBR_INFO=$(sudo modinfo tcp_bbr)
-        BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
 
-        if [[ "$BBR_VERSION" == *"3"* ]]; then
-            echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ BBR v3 已安装~\033[0m"
+        if lsmod | grep -q "tcp_bbr"; then
+            BBR_INFO=$(sudo modinfo tcp_bbr 2>/dev/null)
+            if [[ $? -eq 0 ]]; then
+                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
+                if [[ "$BBR_VERSION" == *"3"* ]]; then
+                    echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ BBR v3 已安装且模块正常加载！\033[0m"
+                else
+                    echo -e "\033[33m(・へ・) BBR 模块已加载，但当前版本不是 v3，检测到的版本是：$BBR_VERSION\033[0m"
+                fi
+            else
+                echo -e "\033[31m(〒︿〒) 无法获取 tcp_bbr 模块信息，请检查模块是否正确安装。\033[0m"
+            fi
         else
-            echo -e "\033[31m(￣﹃￣) 哎呀，BBR v3 没有找到，当前版本是：$BBR_VERSION\033[0m"
+            echo -e "\033[31m(￣﹃￣) BBR 模块未加载，可能未安装或未启用。\033[0m"
         fi
         ;;
 
