@@ -124,17 +124,17 @@ case "$ACTION" in
         reboot
         ;;
 
-     2)
+         2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
 
         # 检查是否加载了 tcp_bbr 模块
         if lsmod | grep -q "tcp_bbr"; then
             BBR_INFO=$(sudo modinfo tcp_bbr 2>/dev/null)
             if [[ $? -eq 0 ]]; then
-                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
+                # 提取版本信息并排除额外标识
+                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}' | grep -o '^[0-9]\+')
                 
-                # 精确匹配版本是否包含 "v3"
-                if [[ "$BBR_VERSION" == *"v3"* ]]; then
+                if [[ "$BBR_VERSION" == "3" ]]; then
                     # 确认当前启用的算法是否为 bbr
                     CURRENT_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
                     if [[ "$CURRENT_ALGO" == "bbr" ]]; then
@@ -153,6 +153,7 @@ case "$ACTION" in
             echo -e "\033[31m(￣﹃￣) BBR 模块未加载，可能未安装或未启用。\033[0m"
         fi
         ;;
+
     3)
         echo -e "\033[1;32m(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ 使用 BBR + FQ 加速！\033[0m"
         ALGO="bbr"
