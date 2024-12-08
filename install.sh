@@ -124,17 +124,38 @@ case "$ACTION" in
         reboot
         ;;
 
-    2)
+      2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
-        BBR_INFO=$(sudo modinfo tcp_bbr)
-        BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}')
 
-        if [[ "$BBR_VERSION" == *"3"* ]]; then
-            echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ BBR v3 已安装~\033[0m"
+        # 检查 tcp_bbr 模块
+        if modinfo tcp_bbr &> /dev/null; then
+            BBR_VERSION=$(modinfo tcp_bbr | grep -i "version" | awk '{print $2}')
+            echo -e "\033[36m检测到内核模块版本：\033[0m\033[1;32m$BBR_VERSION\033[0m"
         else
-            echo -e "\033[31m(￣﹃￣) 哎呀，BBR v3 没有找到，当前版本是：$BBR_VERSION\033[0m"
+            echo -e "\033[31m(T_T) 没有检测到 tcp_bbr 模块，请检查内核！\033[0m"
+            exit 1
         fi
+
+        # 检查当前 TCP 拥塞控制算法
+        CURRENT_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
+        if [[ "$CURRENT_ALGO" == "bbr" ]]; then
+            echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\033[0m"
+        else
+            echo -e "\033[31m(⊙﹏⊙) 当前算法不是 bbr，而是：$CURRENT_ALGO\033[0m"
+            exit 1
+        fi
+
+        # 检查 BBR 模块是否加载
+        if lsmod | grep -q tcp_bbr; then
+            echo -e "\033[36mBBR 模块已加载：\033[0m\033[1;32m$(lsmod | grep tcp_bbr)\033[0m"
+        else
+            echo -e "\033[31m(T_T) BBR 模块未加载，请检查内核配置和 GRUB 参数！\033[0m"
+            exit 1
+        fi
+
+        echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ 检测完成，BBR v3 已正确安装并生效！\033[0m"
         ;;
+
 
     3)
         echo -e "\033[1;32m(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ 使用 BBR + FQ 加速！\033[0m"
