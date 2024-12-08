@@ -125,16 +125,19 @@ case "$ACTION" in
         ;;
 
           2)
+            2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
 
         # 检查是否加载了 tcp_bbr 模块
         if lsmod | grep -q "tcp_bbr"; then
-            BBR_INFO=$(sudo modinfo tcp_bbr 2>/dev/null | tr -d '\n')
+            BBR_INFO=$(sudo modinfo tcp_bbr 2>/dev/null)
             if [[ $? -eq 0 ]]; then
-                # 提取版本号，仅保留数字部分的第一个字段
-                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}' | grep -oE '^[0-9]+')
+                # 提取版本号，确保只保留数字并忽略其他字符
+                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | sed 's/.*version:[[:space:]]*\([0-9]\+\).*/\1/')
 
-                if [[ "$BBR_VERSION" == "3" ]]; then
+                if [[ -z "$BBR_VERSION" ]]; then
+                    echo -e "\033[31m(〒︿〒) 无法提取 BBR 模块版本，请检查模块是否正确安装或版本信息是否格式异常。\033[0m"
+                elif [[ "$BBR_VERSION" == "3" ]]; then
                     # 确认当前启用的算法是否为 bbr
                     CURRENT_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
                     if [[ "$CURRENT_ALGO" == "bbr" ]]; then
