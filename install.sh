@@ -124,15 +124,15 @@ case "$ACTION" in
         reboot
         ;;
 
-            2)
+    2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
 
         # 检查是否加载了 tcp_bbr 模块
         if lsmod | grep -q "tcp_bbr"; then
             BBR_INFO=$(sudo modinfo tcp_bbr 2>/dev/null)
             if [[ $? -eq 0 ]]; then
-                # 提取版本信息，仅保留主版本号（数字部分的第一个字段）
-                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}' | cut -d' ' -f1)
+                # 提取版本号，仅保留数字部分的第一个字段
+                BBR_VERSION=$(echo "$BBR_INFO" | grep -i "version:" | awk '{print $2}' | grep -oE '^[0-9]+')
 
                 if [[ "$BBR_VERSION" == "3" ]]; then
                     # 确认当前启用的算法是否为 bbr
