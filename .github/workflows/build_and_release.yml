@@ -18,13 +18,12 @@ jobs:
           sudo apt-get update
           # 基础依赖与必要工具
           sudo apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl
-          # ARM64 交叉编译工具链（用于ARCH=arm64编译）
+          # ARM64 交叉编译工具链（用于ARM64编译）
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: 获取最新内核版本
         id: get_kernel_version
         run: |
-          # 从 Linux 官方稳定仓库获取最新稳定版内核标记
           LATEST_KERNEL_VERSION=$(git ls-remote --tags https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git \
             | awk -F'/' '{print $3}' \
             | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' \
@@ -39,14 +38,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: byJoey/Actions-bbr-v3
         run: |
-          # 使用 GitHub API 获取该REPO下的最新正式发行(tag_name)
           LATEST_GITHUB_RELEASE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/repos/$REPO/releases \
             | jq -r '[.[] | select(.prerelease == false)][0].tag_name')
           echo "LATEST_GITHUB_RELEASE=$LATEST_GITHUB_RELEASE" >> $GITHUB_OUTPUT
 
       - name: 比较版本信息
         run: |
-          # 若当前GitHub最新版本与最新内核版本相同，则无需更新
           if [ "${{ steps.get_github_release.outputs.LATEST_GITHUB_RELEASE }}" = "${{ steps.get_kernel_version.outputs.LATEST_KERNEL_VERSION }}" ]; then
             echo "GitHub发布版本已是最新内核版本，无需更新。"
             exit 0
@@ -55,13 +52,18 @@ jobs:
 
       - name: 准备工作目录
         run: |
-          # 清理之前编译生成的文件和目录
           rm -rf linux kernel_release kernel_release_*.tar.gz
           mkdir -p kernel_release
 
+      - name: 下载配置文件
+        run: |
+          # 下载 ARM64 和 x86_64 的配置文件
+          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o arm64.config
+          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o x86-64.config
+
       - name: 编译 ARM64 内核
         run: |
-          # 克隆最新稳定版内核源码
+          # 克隆最新内核源码
           git clone --branch ${{ steps.get_kernel_version.outputs.LATEST_KERNEL_VERSION }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
@@ -74,22 +76,24 @@ jobs:
           git fetch google-bbr
           git checkout google-bbr/v3
 
-          # 修改 Makefile 中的版本号使其与 KERNEL_VERSION 一致
+          # 修改 Makefile 中的版本号
           sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          # 下载 arm64 配置文件
-          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o arm64.config
-          cp arm64.config .config
-          yes "" | make oldconfig
+          # 使用ARM64配置文件
+          cp ../arm64.config .config
+          # 使用olddefconfig自动化配置生成
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           # 移除受信任密钥相关配置
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
           # 移除调试符号
           sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          # 再次执行olddefconfig以确保配置一致
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-          # 编译 ARM64 内核 (使用交叉编译器)
+          # 编译 ARM64 内核
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog-joeyblog.net KBUILD_BUILD_DEBUG_INFO=n bindeb-pkg -j$(nproc)
 
           cd ..
@@ -102,29 +106,30 @@ jobs:
       - name: 编译 x86_64 内核
         run: |
           KERNEL_VERSION=${{ env.KERNEL_VERSION }}
-          # 再次下载源码进行 x86_64 架构编译
+          # 再次克隆源码
           rm -rf linux
           git clone --branch v$KERNEL_VERSION --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
-          # 添加 BBR v3 源码并切换分支
+          # 添加 BBR v3 源码
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
 
-          # 同步 Makefile 中的版本信息
+          # 同步版本信息
           sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          # 下载 x86_64 配置文件
-          curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o .config
-          yes "" | make oldconfig
+          # 使用x86_64配置文件
+          cp ../x86-64.config .config
+          make olddefconfig
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
           sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
+          make olddefconfig
 
-          # x86_64 环境下直接本地编译，无需交叉编译器
+          # x86_64下直接编译（无需CROSS_COMPILE）
           make LOCALVERSION=-joeyblog-joeyblog.net KBUILD_BUILD_DEBUG_INFO=n bindeb-pkg -j$(nproc)
 
           cd ..
@@ -140,7 +145,7 @@ jobs:
         run: |
           # 创建 GitHub 发行
           RELEASE_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" \
-            -d "{\"tag_name\": \"v$KERNEL_VERSION\", \"name\": \"Kernel $KERNEL_VERSION (arm64 & x86_64)\", \"body\": \"自动生成的内核发行版本 $KERNEL_VERSION 包含 arm64 和 x86_64 内核包，以及BBR v3。\"}" \
+            -d "{\"tag_name\": \"v$KERNEL_VERSION\", \"name\": \"Kernel $KERNEL_VERSION (arm64 & x86_64)\", \"body\": \"自动生成的内核发行版本 $KERNEL_VERSION 包含ARM64和x86_64内核包以及BBR v3。\"}" \
             https://api.github.com/repos/$REPO/releases)
           UPLOAD_URL=$(echo $RELEASE_RESPONSE | jq -r .upload_url | sed -e "s/{?name,label}//")
 
