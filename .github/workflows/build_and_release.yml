@@ -8,18 +8,20 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v3
 
-      - name: 安装依赖和交叉编译工具链
+      - name: 设置构建环境
         run: |
+          # 启用 ARM64 架构支持
+          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          # 基础依赖与必要工具
-          sudo apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper vim gcc make zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl
-          # ARM64 交叉编译工具链（用于ARM64编译）
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          # 安装基础依赖、交叉编译工具链、以及dpkg构建所需工具
+          sudo apt-get install -y \
+            git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper vim gcc make \
+            zlib1g-dev libbz2-dev fakeroot kmod libncurses5 dkms jq curl \
+            gcc-aarch64-linux-gnu crossbuild-essential-arm64
 
       - name: 获取最新内核版本
         id: get_kernel_version
@@ -50,14 +52,11 @@ jobs:
           fi
           echo "需要编译新内核版本。"
 
-      - name: 准备工作目录
+      - name: 准备工作目录及配置
         run: |
           rm -rf linux kernel_release kernel_release_*.tar.gz
           mkdir -p kernel_release
-
-      - name: 下载配置文件
-        run: |
-          # 下载 ARM64 和 x86_64 的配置文件
+          # 下载 ARM64 和 x86_64 配置文件
           curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config -o arm64.config
           curl -L https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config -o x86-64.config
 
@@ -66,62 +65,50 @@ jobs:
           # 克隆最新内核源码
           git clone --branch ${{ steps.get_kernel_version.outputs.LATEST_KERNEL_VERSION }} --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
-
-          # 获取内核版本信息
           KERNEL_VERSION=$(make kernelversion)
-          echo "编译目标内核版本：$KERNEL_VERSION"
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
 
-          # 添加BBR v3源码仓库并切换分支
+          # 添加BBR v3代码
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
 
-          # 修改 Makefile 中的版本号
+          # 修改 Makefile 版本号
           sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          # 使用ARM64配置文件
+          # 使用ARM64配置
           cp ../arm64.config .config
-          # 使用olddefconfig自动化配置生成
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-          # 移除受信任密钥相关配置
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
           echo 'CONFIG_SYSTEM_TRUSTED_KEYS=""' >> .config
-          # 移除调试符号
           sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
-          # 再次执行olddefconfig以确保配置一致
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
-          # 编译 ARM64 内核
+          # 编译ARM64内核并使用bindeb-pkg打包
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=-joeyblog-joeyblog.net KBUILD_BUILD_DEBUG_INFO=n bindeb-pkg -j$(nproc)
 
           cd ..
-          # 保存编译结果
           mkdir -p kernel_release/arm64
           mv linux-image-*.deb linux-headers-*.deb kernel_release/arm64/
           tar -czvf kernel_release_arm64_${KERNEL_VERSION}.tar.gz -C kernel_release/arm64 .
-          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
 
       - name: 编译 x86_64 内核
         run: |
           KERNEL_VERSION=${{ env.KERNEL_VERSION }}
-          # 再次克隆源码
           rm -rf linux
           git clone --branch v$KERNEL_VERSION --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
           cd linux
 
-          # 添加 BBR v3 源码
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
 
-          # 同步版本信息
           sed -i "s/^VERSION = .*/VERSION = ${KERNEL_VERSION%%.*}/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $(echo $KERNEL_VERSION | cut -d. -f2)/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $(echo $KERNEL_VERSION | cut -d. -f3 | cut -d- -f1)/" Makefile
 
-          # 使用x86_64配置文件
           cp ../x86-64.config .config
           make olddefconfig
           sed -i '/CONFIG_SYSTEM_TRUSTED_KEYS/d' .config
@@ -129,7 +116,7 @@ jobs:
           sed -i 's/CONFIG_DEBUG_INFO=y/CONFIG_DEBUG_INFO=n/' .config
           make olddefconfig
 
-          # x86_64下直接编译（无需CROSS_COMPILE）
+          # x86_64 架构下直接本地编译
           make LOCALVERSION=-joeyblog-joeyblog.net KBUILD_BUILD_DEBUG_INFO=n bindeb-pkg -j$(nproc)
 
           cd ..
@@ -143,7 +130,6 @@ jobs:
           REPO: byJoey/Actions-bbr-v3
           KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
         run: |
-          # 创建 GitHub 发行
           RELEASE_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" \
             -d "{\"tag_name\": \"v$KERNEL_VERSION\", \"name\": \"Kernel $KERNEL_VERSION (arm64 & x86_64)\", \"body\": \"自动生成的内核发行版本 $KERNEL_VERSION 包含ARM64和x86_64内核包以及BBR v3。\"}" \
             https://api.github.com/repos/$REPO/releases)
@@ -155,10 +141,7 @@ jobs:
             exit 1
           fi
 
-          # 上传 ARM64 内核包
           curl -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/gzip" --data-binary @kernel_release_arm64_${KERNEL_VERSION}.tar.gz "$UPLOAD_URL?name=kernel_release_arm64_${KERNEL_VERSION}.tar.gz"
-          
-          # 上传 x86_64 内核包
           curl -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/gzip" --data-binary @kernel_release_x86_64_${KERNEL_VERSION}.tar.gz "$UPLOAD_URL?name=kernel_release_x86_64_${KERNEL_VERSION}.tar.gz"
 
           echo "发行版创建与文件上传已完成，请前往 GitHub Releases 页面查看。"
