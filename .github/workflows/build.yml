@@ -15,13 +15,15 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_VERSION: ""
-
     steps:
       - name: 获取内核版本号
         id: get_kernel_version
         run: |
+          # 从 kernel.org 获取最新 stable 内核版本号
           version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
-          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
+          # 在版本号后加上 -joeyblog 后缀
+          version_with_tag="${version}-joeyblog"
+          echo "KERNEL_VERSION=$version_with_tag" >> $GITHUB_ENV
 
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -29,7 +31,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper -y
+          sudo apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
@@ -40,7 +42,9 @@ jobs:
       - name: 下载内核源代码
         working-directory: ./kernel/
         run: |
-          kernel_branch=$(echo "${{ env.KERNEL_VERSION }}" | grep -oP '^\d+\.\d+')
+          # 提取基础版本号（去掉 -joeyblog 后缀）用于确定分支
+          base_version="${{ env.KERNEL_VERSION%-joeyblog}}"
+          kernel_branch=$(echo "$base_version" | grep -oP '^\d+\.\d+')
           git clone --branch linux-$kernel_branch.y https://github.com/gregkh/linux.git
 
       - name: 添加Google BBRv3补丁
@@ -50,56 +54,72 @@ jobs:
           git fetch google-bbr
           git checkout google-bbr/v3
 
-      - name: 设置内核版本信息并加入-joeyblog后缀
+      - name: 设置内核版本信息
         working-directory: ./kernel/linux/
         run: |
-          IFS='.' read -r version patchlevel sublevel <<< "${{ env.KERNEL_VERSION }}"
+          base_version="${{ env.KERNEL_VERSION%-joeyblog}}"
+          IFS='.' read -r version patchlevel sublevel <<< "$base_version"
           sed -i "s/^VERSION = .*/VERSION = $version/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $patchlevel/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $sublevel/" Makefile
-          # 加上 -joeyblog 后缀
-          sed -i "s/^EXTRAVERSION =.*/EXTRAVERSION = -joeyblog/" Makefile
 
       - name: 设定内核配置文件
         working-directory: ./kernel/linux/
         run: |
           if [ "${{ matrix.arch }}" == "arm64" ]; then
-            cp ../../arm64.config .config
+            cp ../../../arm64.config .config
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           else
-            cp ../../x86-64.config .config
+            cp ../../../x86-64.config .config
+            make olddefconfig
           fi
-          make olddefconfig
 
-      - name: 编译内核并打包为tar.gz
+      - name: 编译内核 (tar-pkg)
         working-directory: ./kernel/linux/
         run: |
           if [ "${{ matrix.arch }}" == "arm64" ]; then
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- tarball-pkg -j$(nproc)
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- tar-pkg -j$(nproc)
           else
-            make tarball-pkg -j$(nproc)
+            make tar-pkg -j$(nproc)
           fi
-          # 将生成的tar.gz重命名为 kernel_release_架构_版本号.tar.gz
-          mv ../linux-${{ env.KERNEL_VERSION }}-joeyblog.tar.gz ../kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}.tar.gz
+          # tar-pkg 会在上一级目录生成 linux-<版本号>.tar.gz
+          # 重命名为 kernel_release_<架构>_<纯净版本号>.tar.gz
+          mv ../linux-${{ env.KERNEL_VERSION }}.tar.gz ../kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION%%-joeyblog}}.tar.gz
 
-      - name: 上传tar.gz包为构建产物
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-${{ matrix.arch }}
-          path: kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}.tar.gz
+          name: kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION%%-joeyblog}}
+          path: ./kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION%%-joeyblog}}.tar.gz
 
-      - name: 获取当前commit的短SHA
-        id: get_short_sha
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 读取版本号
+        run: |
+          # 从构建环境文件中获取KERNEL_VERSION
+          echo "KERNEL_VERSION=$(cat $GITHUB_ENV | grep KERNEL_VERSION | cut -d '=' -f2)" >> $GITHUB_ENV
 
-      - name: 发布到GitHub Release
+      - name: 下载 x86_64 构建产物
+        uses: actions/download-artifact@v3
+        with:
+          path: ./
+          name: kernel_release_x86_64_${{ env.KERNEL_VERSION%%-joeyblog}}
+
+      - name: 下载 arm64 构建产物
+        uses: actions/download-artifact@v3
+        with:
+          path: ./
+          name: kernel_release_arm64_${{ env.KERNEL_VERSION%%-joeyblog}}
+
+      - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.ARCH }}-${{ env.KERNEL_VERSION }}-joeyblog
-          files: kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
+          tag_name: v${{ env.KERNEL_VERSION%%-joeyblog }}
+          name: Kernel ${{ env.KERNEL_VERSION%%-joeyblog }} (arm64 & x86_64) Latest
           body: |
-            @byJoey byJoey  
-            v${{ env.KERNEL_VERSION }}  
-            ${{ env.short_sha }}  
-            Kernel ${{ env.KERNEL_VERSION }} (arm64 & x86_64) Latest
-
-            Auto-generated release for kernel version ${{ env.KERNEL_VERSION }} (arm64 & x86_64)
+            Auto-generated release for kernel version ${{ env.KERNEL_VERSION%%-joeyblog }} (arm64 & x86_64)
+          files: |
+            ./kernel_release_arm64_${{ env.KERNEL_VERSION%%-joeyblog}}.tar.gz
+            ./kernel_release_x86_64_${{ env.KERNEL_VERSION%%-joeyblog}}.tar.gz
