@@ -29,7 +29,9 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper -y
+          sudo apt-get install -y \
+            git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper \
+            fakeroot dpkg-dev
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
@@ -83,9 +85,6 @@ jobs:
       - name: 压缩deb文件为tar.gz
         working-directory: ./kernel/
         run: |
-          # 假设bindeb-pkg会在kernel/目录下生成相应的deb包文件
-          # 例如: linux-image-xxx.deb linux-headers-xxx.deb
-          # 我们将它们打包为 kernel_release_${ARCH}_${KERNEL_VERSION}.tar.gz
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
 
       - name: 上传tar.gz文件
