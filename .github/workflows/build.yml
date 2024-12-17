@@ -29,8 +29,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git build-essential libncurses-dev libssl-dev libelf-dev \
+          sudo apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev \
             libudev-dev libpci-dev libcap-dev libpcre2-dev bison bc flex rsync debhelper \
             dpkg-dev fakeroot kmod cpio dwarves lz4 zstd xz-utils
           if [ "${{ matrix.arch }}" == "arm64" ]; then
@@ -83,23 +82,38 @@ jobs:
           fi
 
       - name: 压缩deb文件为tar.gz
+        working-directory: ./kernel/
         run: |
-          cd kernel
-          tar -czf ../kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
+          tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
 
-      - name: 上传tar.gz文件
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ env.ARCH }}
+          name: ${{ env.ARCH }}-release
           path: ./kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v2
+        with:
+          name: x86_64-release
+          path: .
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: arm64-release
+          path: .
 
       - name: 发布到GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "${{ env.ARCH }}-${{ env.KERNEL_VERSION }}"
-          name: "Kernel ${{ env.KERNEL_VERSION }} (${{ env.ARCH }}) Latest"
-          files: ./kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
+          tag_name: "6.12.5"
+          name: "Kernel 6.12.5 (arm64 & x86_64) Latest"
+          files: |
+            ./kernel_release_x86_64_6.12.5.tar.gz
+            ./kernel_release_arm64_6.12.5.tar.gz
           body: |
-            Auto-generated release for kernel version ${{ env.KERNEL_VERSION }} (${{ env.ARCH }})
-
-            跟随官方更新
+            Auto-generated release for kernel version 6.12.5 (arm64 & x86_64)
+            此版本包含BBRv3补丁和-joeyblog后缀。
