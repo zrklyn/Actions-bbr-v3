@@ -29,15 +29,10 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          # 安装构建内核和打包deb所需的广泛依赖
           sudo apt-get install -y \
-            git build-essential \
-            libncurses-dev libssl-dev libelf-dev \
-            libudev-dev libpci-dev libcap-dev libpcre2-dev \
-            bison bc flex rsync debhelper \
+            git build-essential libncurses-dev libssl-dev libelf-dev \
+            libudev-dev libpci-dev libcap-dev libpcre2-dev bison bc flex rsync debhelper \
             dpkg-dev fakeroot kmod cpio dwarves lz4 zstd xz-utils
-
-          # 针对arm64架构的交叉编译工具链
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
@@ -65,7 +60,6 @@ jobs:
           sed -i "s/^VERSION = .*/VERSION = $version/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $patchlevel/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $sublevel/" Makefile
-          # 设置本地版本号后缀
           echo "${{ env.LOCALVERSION }}" > localversion
 
       - name: 设定内核配置文件
@@ -82,7 +76,6 @@ jobs:
       - name: 编译内核并打包deb
         working-directory: ./kernel/linux/
         run: |
-          # 使用详细模式构建以便诊断可能的错误
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bindeb-pkg -j$(nproc) V=1
           else
@@ -90,9 +83,9 @@ jobs:
           fi
 
       - name: 压缩deb文件为tar.gz
-        working-directory: ./kernel/
         run: |
-          tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
+          cd kernel
+          tar -czf ../kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
 
       - name: 上传tar.gz文件
         uses: actions/upload-artifact@v4
@@ -109,4 +102,4 @@ jobs:
           body: |
             Auto-generated release for kernel version ${{ env.KERNEL_VERSION }} (${{ env.ARCH }})
 
-            此版本包含BBRv3补丁和-joeyblog后缀。
+            跟随官方更新
