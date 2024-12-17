@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
 
 env:
-  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  LOCALVERSION: "-joeyblog"
 
 jobs:
   build:
@@ -15,7 +16,6 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_VERSION: ""
-      LOCALVERSION: "-joeyblog"
     steps:
       - name: 获取内核版本号
         id: get_kernel_version
@@ -29,7 +29,6 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          # 尽可能安装所有可能需要的构建和打包依赖
           sudo apt-get install -y \
             git build-essential \
             libncurses-dev libssl-dev libelf-dev \
@@ -63,7 +62,6 @@ jobs:
           sed -i "s/^VERSION = .*/VERSION = $version/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $patchlevel/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $sublevel/" Makefile
-          # 设置本地版本号后缀
           echo "${{ env.LOCALVERSION }}" > localversion
 
       - name: 设定内核配置文件
@@ -101,26 +99,23 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: 再次获取内核版本号
+        id: get_kernel_version
+        run: |
+          version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
+          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
+      
       - name: 下载x86_64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}
+          name: kernel_release_x86_64_${{ env.KERNEL_VERSION }}
           path: ./kernel
 
       - name: 下载arm64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}
+          name: kernel_release_arm64_${{ env.KERNEL_VERSION }}
           path: ./kernel
-
-      # 上面下载步骤中由于需要取得KERNEL_VERSION变量，需要在build完成后才能访问。
-      # 如果KERNEL_VERSION不方便通过outputs传递，可以在release步骤中重新获取版本号。
-      # 这里假设KERNEL_VERSION与build步骤中一致，可通过相同方式获取。
-      - name: 获取内核版本号（如需）
-        id: get_kernel_version
-        run: |
-          version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
-          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
 
       - name: 发布到GitHub Release
         uses: softprops/action-gh-release@v2
