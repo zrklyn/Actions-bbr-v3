@@ -22,6 +22,7 @@ jobs:
         run: |
           version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
           echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$version" >> $GITHUB_OUTPUT
 
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -87,11 +88,9 @@ jobs:
       - name: 压缩deb文件为tar.gz
         working-directory: ./kernel/
         run: |
-          # 此时deb文件应在./kernel/目录下（bindeb-pkg会在上级目录生成deb）
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
 
       - name: 上传构建产物
-        # 注意这里的path路径，加上./kernel/前缀确保上传在正确的目录中生成的文件
         uses: actions/upload-artifact@v4
         with:
           name: kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}
@@ -100,33 +99,29 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: build
+    # 在release中使用needs.build.outputs.KERNEL_VERSION获取版本号，不再重新获取
     steps:
-      - name: 再次获取内核版本号
-        id: get_kernel_version
-        run: |
-          version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
-          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
-      
       - name: 下载x86_64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_x86_64_${{ env.KERNEL_VERSION }}
+          name: kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}
           path: ./kernel
 
       - name: 下载arm64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_arm64_${{ env.KERNEL_VERSION }}
+          name: kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}
           path: ./kernel
 
       - name: 发布到GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "kernel-${{ env.KERNEL_VERSION }}"
-          name: "Kernel ${{ env.KERNEL_VERSION }} (arm64 & x86_64) Latest"
+          tag_name: "kernel-${{ needs.build.outputs.KERNEL_VERSION }}"
+          name: "Kernel ${{ needs.build.outputs.KERNEL_VERSION }} (arm64 & x86_64) Latest"
           files: |
-            ./kernel/kernel_release_x86_64_${{ env.KERNEL_VERSION }}.tar.gz
-            ./kernel/kernel_release_arm64_${{ env.KERNEL_VERSION }}.tar.gz
+            ./kernel/kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}.tar.gz
+            ./kernel/kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}.tar.gz
           body: |
-            Auto-generated release for kernel version ${{ env.KERNEL_VERSION }} (arm64 & x86_64)
+            Auto-generated release for kernel version ${{ needs.build.outputs.KERNEL_VERSION }} (arm64 & x86_64)
 
+            此版本包含BBRv3补丁和-joeyblog后缀。
