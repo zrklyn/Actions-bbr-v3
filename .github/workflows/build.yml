@@ -22,8 +22,6 @@ jobs:
         run: |
           version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
           echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
-          echo "::set-output name=kernel_version::$version"  # 设置步骤输出
-        shell: bash
 
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -31,6 +29,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
+          # 尽可能安装所有可能需要的构建和打包依赖
           sudo apt-get install -y \
             git build-essential \
             libncurses-dev libssl-dev libelf-dev \
@@ -64,6 +63,7 @@ jobs:
           sed -i "s/^VERSION = .*/VERSION = $version/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $patchlevel/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $sublevel/" Makefile
+          # 设置本地版本号后缀
           echo "${{ env.LOCALVERSION }}" > localversion
 
       - name: 设定内核配置文件
@@ -94,36 +94,43 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ env.ARCH }}
+          name: kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}
           path: ./kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
-
-    outputs:
-      kernel_version: ${{ steps.get_kernel_version.outputs.kernel_version }}
 
   release:
     runs-on: ubuntu-latest
     needs: build
-    if: success()
     steps:
-      - name: 下载arm64构建产物
-        uses: actions/download-artifact@v3
-        with:
-          name: release-arm64
-
       - name: 下载x86_64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: release-x86_64
+          name: kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}
+          path: ./kernel
+
+      - name: 下载arm64构建产物
+        uses: actions/download-artifact@v3
+        with:
+          name: kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}
+          path: ./kernel
+
+      # 上面下载步骤中由于需要取得KERNEL_VERSION变量，需要在build完成后才能访问。
+      # 如果KERNEL_VERSION不方便通过outputs传递，可以在release步骤中重新获取版本号。
+      # 这里假设KERNEL_VERSION与build步骤中一致，可通过相同方式获取。
+      - name: 获取内核版本号（如需）
+        id: get_kernel_version
+        run: |
+          version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
+          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
 
       - name: 发布到GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "${{ needs.build.outputs.kernel_version }}"
-          name: "Kernel ${{ needs.build.outputs.kernel_version }} (arm64 & x86_64) Latest"
+          tag_name: "kernel-${{ env.KERNEL_VERSION }}"
+          name: "Kernel ${{ env.KERNEL_VERSION }} (arm64 & x86_64) Latest"
           files: |
-            kernel_release_arm64_${{ needs.build.outputs.kernel_version }}.tar.gz
-            kernel_release_x86_64_${{ needs.build.outputs.kernel_version }}.tar.gz
+            ./kernel/kernel_release_x86_64_${{ env.KERNEL_VERSION }}.tar.gz
+            ./kernel/kernel_release_arm64_${{ env.KERNEL_VERSION }}.tar.gz
           body: |
-            Auto-generated release for kernel version ${{ needs.build.outputs.kernel_version }} (arm64 & x86_64)
+            Auto-generated release for kernel version ${{ env.KERNEL_VERSION }} (arm64 & x86_64)
 
-            自动更新
+            此版本包含BBRv3补丁和-joeyblog后缀。
