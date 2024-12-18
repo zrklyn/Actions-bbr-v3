@@ -31,14 +31,14 @@ jobs:
       ARCH: ${{ matrix.arch }}
       KERNEL_VERSION: ""
     outputs:
-      kernel_version: ${{ env.KERNEL_VERSION }}
+      kernel_version: ${{ steps.get_version.outputs.kernel_version }}
     steps:
       - name: 获取内核版本号
-        id: get_kernel_version
+        id: get_version
         run: |
           version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
           echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
-          echo "KERNEL_VERSION=$version" >> $GITHUB_OUTPUT
+          echo "::set-output name=kernel_version::$version"
 
       - name: 拉取代码仓库
         uses: actions/checkout@v4
@@ -112,8 +112,8 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}
-          path: ./kernel/kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
+          name: kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}
+          path: ./kernel/kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}.tar.gz
 
   release:
     needs: build
