@@ -30,6 +30,8 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_VERSION: ""
+    outputs:
+      kernel_version: ${{ env.KERNEL_VERSION }}
     steps:
       - name: 获取内核版本号
         id: get_kernel_version
@@ -104,6 +106,9 @@ jobs:
         run: |
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
 
+      - name: 列出构建目录内容（调试）
+        run: ls -lh ./kernel/
+
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
@@ -117,23 +122,24 @@ jobs:
       - name: 下载x86_64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}
+          name: kernel_release_x86_64_${{ needs.build.outputs.kernel_version }}
           path: ./kernel
 
       - name: 下载arm64构建产物
         uses: actions/download-artifact@v3
         with:
-          name: kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}
+          name: kernel_release_arm64_${{ needs.build.outputs.kernel_version }}
           path: ./kernel
 
       - name: 发布到GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "kernel-${{ needs.build.outputs.KERNEL_VERSION }}"
-          name: "Kernel ${{ needs.build.outputs.KERNEL_VERSION }} (arm64 & x86_64) Latest"
+          tag_name: "kernel-${{ needs.build.outputs.kernel_version }}"
+          name: "Kernel ${{ needs.build.outputs.kernel_version }} (arm64 & x86_64) Latest"
           files: |
-            ./kernel/kernel_release_x86_64_${{ needs.build.outputs.KERNEL_VERSION }}.tar.gz
-            ./kernel/kernel_release_arm64_${{ needs.build.outputs.KERNEL_VERSION }}.tar.gz
+            ./kernel/kernel_release_x86_64_${{ needs.build.outputs.kernel_version }}.tar.gz
+            ./kernel/kernel_release_arm64_${{ needs.build.outputs.kernel_version }}.tar.gz
           body: |
-            Auto-generated release for kernel version ${{ needs.build.outputs.KERNEL_VERSION }} (arm64 & x86_64)
+            Auto-generated release for kernel version ${{ needs.build.outputs.kernel_version }} (arm64 & x86_64)
 
+            此版本包含BBRv3补丁和-joeyblog后缀。
