@@ -109,20 +109,23 @@ jobs:
         working-directory: ./kernel/
         run: |
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
-
-      - name: 列出构建目录内容（调试）
-        run: ls -lh ./kernel/
+          ls -lh ./kernel/
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}
-          path: ./kernel/kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}.tar.gz
+          name: kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}
+          path: ./kernel/kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}.tar.gz
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: 列出所有构件
+        run: |
+          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/artifacts"
+
       - name: 下载 x86_64 构建产物
         uses: actions/download-artifact@v3
         with:
