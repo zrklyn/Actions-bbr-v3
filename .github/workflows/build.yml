@@ -106,16 +106,16 @@ jobs:
           fi
 
       - name: 压缩deb文件为tar.gz
-        working-directory: ./kernel/
+        working-directory: ../kernel/
         run: |
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
-          ls -lh ./kernel/
+          ls -lh ../kernel/
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}
-          path: ./kernel/kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+          path: ../kernel/kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}.tar.gz
 
   release:
     needs: build
@@ -130,13 +130,13 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}
-          path: ./kernel
+          path: ../kernel
 
       - name: 下载 arm64 构建产物
         uses: actions/download-artifact@v3
         with:
           name: kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}
-          path: ./kernel
+          path: ../kernel
 
       - name: 列出下载的文件（调试）
         run: ls -lh ./kernel/
@@ -147,8 +147,8 @@ jobs:
           tag_name: "kernel-${{ needs.get-version.outputs.kernel_version }}"
           name: "Kernel ${{ needs.get-version.outputs.kernel_version }} (arm64 & x86_64)"
           files: |
-            ./kernel/kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
-            ./kernel/kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+            ../kernel/kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+            ../kernel/kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
           body: |
             Auto-generated release for kernel version ${{ needs.get-version.outputs.kernel_version }}.
             - Includes BBRv3 patches.
