@@ -17,6 +17,10 @@ jobs:
         id: get_version
         run: |
           version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
+          if [ -z "$version" ]; then
+            echo "Error: Unable to fetch kernel version."
+            exit 1
+          fi
           echo "::set-output name=kernel_version::$version"
           echo "Kernel version: $version"
 
@@ -61,13 +65,17 @@ jobs:
           fi
 
       - name: 创建内核目录
-        run: mkdir ./kernel/
+        run: mkdir -p ./kernel/
 
       - name: 下载内核源代码
         working-directory: ./kernel/
         run: |
           kernel_branch=$(echo "${{ env.KERNEL_VERSION }}" | grep -oP '^\d+\.\d+')
           git clone --branch linux-$kernel_branch.y https://github.com/gregkh/linux.git
+          if [ ! -d linux ]; then
+            echo "Error: Failed to clone kernel source."
+            exit 1
+          fi
 
       - name: 添加Google BBRv3补丁
         working-directory: ./kernel/linux/
@@ -104,18 +112,19 @@ jobs:
           else
             make bindeb-pkg -j$(nproc)
           fi
+          ls -lh ../*.deb
 
       - name: 压缩deb文件为tar.gz
-        working-directory: ../kernel/
+        working-directory: ./kernel/
         run: |
-          tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz linux-*.deb
-          ls -lh ../kernel/
+          tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz ../linux-*.deb
+          ls -lh ./
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}
-          path: ../kernel/kernel_release_${{ matrix.arch }}_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+          path: ./kernel/kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
 
   release:
     needs: build
@@ -130,15 +139,15 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}
-          path: ../kernel
+          path: ./kernel
 
       - name: 下载 arm64 构建产物
         uses: actions/download-artifact@v3
         with:
           name: kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}
-          path: ../kernel
+          path: ./kernel
 
-      - name: 列出下载的文件（调试）
+      - name: 列出下载的文件
         run: ls -lh ./kernel/
 
       - name: 发布到 GitHub Release
@@ -147,8 +156,8 @@ jobs:
           tag_name: "kernel-${{ needs.get-version.outputs.kernel_version }}"
           name: "Kernel ${{ needs.get-version.outputs.kernel_version }} (arm64 & x86_64)"
           files: |
-            ../kernel/kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
-            ../kernel/kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+            ./kernel/kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
+            ./kernel/kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
           body: |
             Auto-generated release for kernel version ${{ needs.get-version.outputs.kernel_version }}.
             - Includes BBRv3 patches.
