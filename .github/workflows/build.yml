@@ -1,242 +1,106 @@
-name: 使用BBRv3构建内核
+name: 构建带有BBRv3的内核
 
 on:
   workflow_dispatch:
 
 env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  LOCALVERSION: "-joeyblog"
+  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
 jobs:
-  get-version:
-    runs-on: ubuntu-latest
-    outputs:
-      kernel_version: ${{ steps.get_version.outputs.kernel_version }}
-    steps:
-      - name: 获取内核版本号
-        id: get_version
-        run: |
-          # 使用Kernel.org API获取最新稳定版内核版本号
-          version=$(curl -s https://www.kernel.org/releases.json | jq -r '.releases[] | select(.type=="stable") | .version' | head -n1)
-          if [ -z "$version" ]; then
-            echo "Error: Unable to fetch kernel version."
-            exit 1
-          fi
-          echo "kernel_version=$version" >> $GITHUB_OUTPUT
-          echo "Kernel version: $version"
-
-  cleanup:
-    runs-on: ubuntu-latest
-    needs: get-version
-    steps:
-      - name: 安装jq工具
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: 删除旧的构建记录
-        run: |
-          echo "开始清理旧的工作流记录..."
-          artifacts=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100")
-          expired_ids=$(echo "$artifacts" | jq '.artifacts[] | select(.expired == true) | .id')
-          if [ -z "$expired_ids" ]; then
-            echo "没有过期的构建记录需要删除。"
-            exit 0
-          fi
-          echo "$expired_ids" | while read id; do
-            id=$(echo $id | tr -d '"')
-            echo "删除构件 ID: $id"
-            response=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$id")
-            if [ "$response" -eq 204 ]; then
-              echo "构件 ID $id 删除成功。"
-            else
-              echo "Error: 删除构件 ID $id 失败，HTTP 状态码 $response。"
-              exit 1
-            fi
-          done
-          echo "清理完成。"
-
   build:
-    needs: [get-version, cleanup]
     runs-on: ubuntu-latest
     strategy:
       matrix:
         arch: [x86_64, arm64]
     env:
       ARCH: ${{ matrix.arch }}
-      KERNEL_VERSION: ${{ needs.get-version.outputs.kernel_version }}
+      KERNEL_VERSION: ""
     steps:
-      - name: 缓存内核源代码
-        uses: actions/cache@v3
-        with:
-          path: ./kernel/linux
-          key: ${{ runner.os }}-kernel-source-${{ env.KERNEL_VERSION }}
-          restore-keys: |
-            ${{ runner.os }}-kernel-source-
+      - name: 获取内核版本
+        id: get_kernel_version
+        run: |
+          version=$(curl -s https://www.kernel.org | grep -A 1 -m 1 "stable:" | grep -oP '\d+\.\d+\.\d+')
+          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
 
-      - name: 拉取代码仓库
+      - name: 检出代码
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: 安装构建依赖
+      - name: 安装依赖项
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            git build-essential \
-            libncurses-dev libssl-dev libelf-dev \
-            libudev-dev libpci-dev libcap-dev libpcre2-dev \
-            bison bc flex rsync debhelper \
-            dpkg-dev fakeroot kmod cpio dwarves \
-            lz4 zstd xz-utils curl jq
+          sudo apt-get install git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper -y
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
 
-      - name: 创建内核目录
-        run: mkdir -p ./kernel/
+      - name: 创建目录
+        run: mkdir ./kernel/
 
       - name: 下载内核源代码
         working-directory: ./kernel/
         run: |
           kernel_branch=$(echo "${{ env.KERNEL_VERSION }}" | grep -oP '^\d+\.\d+')
-          branch_name="linux-$kernel_branch.y"
-          echo "使用分支: $branch_name"
-          git clone --branch "$branch_name" --depth 1 https://github.com/gregkh/linux.git
-          if [ ! -d linux ]; then
-            echo "Error: Failed to clone kernel source."
-            exit 1
-          fi
+          git clone --branch linux-$kernel_branch.y https://github.com/gregkh/linux.git
 
-      - name: 添加Google BBRv3补丁
+      - name: 添加 Google BBRv3
         working-directory: ./kernel/linux/
         run: |
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to checkout BBRv3 patch."
-            exit 1
-          fi
-          git rebase origin/master
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to rebase BBRv3 patch."
-            exit 1
-          fi
 
-      - name: 设置内核版本信息
+      - name: 设置内核版本变量
         working-directory: ./kernel/linux/
         run: |
           IFS='.' read -r version patchlevel sublevel <<< "${{ env.KERNEL_VERSION }}"
           sed -i "s/^VERSION = .*/VERSION = $version/" Makefile
           sed -i "s/^PATCHLEVEL = .*/PATCHLEVEL = $patchlevel/" Makefile
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = $sublevel/" Makefile
-          echo "${{ env.LOCALVERSION }}" > localversion
-          if ! grep -q "${{ env.LOCALVERSION }}" localversion; then
-            echo "Error: Failed to set local version."
-            exit 1
-          fi
 
-      - name: 验证配置文件存在
-        run: |
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            CONFIG_FILE="arm64.config"
-          else
-            CONFIG_FILE="x86-64.config"
-          fi
-          if [ ! -f "${{ github.workspace }}/$CONFIG_FILE" ]; then
-            echo "Error: 配置文件 $CONFIG_FILE 不存在。"
-            exit 1
-          fi
-
-      - name: 设定内核配置文件
+      - name: 设置 .config
         working-directory: ./kernel/linux/
         run: |
           if [ "${{ matrix.arch }}" == "arm64" ]; then
-            cp "${{ github.workspace }}/arm64.config" .config
+            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/arm64.config > .config
             make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           else
-            cp "${{ github.workspace }}/x86-64.config" .config
+            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/x86-64.config > .config
             make olddefconfig
           fi
-          if [ $? -ne 0 ]; then
-            echo "Error: 设定内核配置文件失败。"
-            exit 1
-          fi
 
-      - name: 编译内核并打包deb
+      - name: 构建内核
         working-directory: ./kernel/linux/
         run: |
           if [ "${{ matrix.arch }}" == "arm64" ]; then
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bindeb-pkg -j$(nproc)
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
           else
-            make bindeb-pkg -j$(nproc)
+            make bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
           fi
-          if [ $? -ne 0 ]; then
-            echo "Error: 内核编译失败。"
-            exit 1
-          fi
-          ls -lh ../*.deb
 
-      - name: 压缩deb文件为tar.gz
-        working-directory: ./kernel/
-        run: |
-          deb_file=$(ls linux-*.deb | head -n1)
-          if [ -z "$deb_file" ]; then
-            echo "Error: 未找到deb文件。"
-            exit 1
-          fi
-          tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz "$deb_file"
-          ls -lh ./
-
-      - name: 上传构建产物
+      - name: 上传配置文件
         uses: actions/upload-artifact@v4
         with:
-          name: kernel_release_${{ matrix.arch }}_${{ env.KERNEL_VERSION }}
-          path: ./kernel/kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
+          name: config-${{ matrix.arch }}
+          path: ./kernel/linux/.config
+
+      - name: 上传deb包
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: ./kernel/linux-*.deb
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 安装jq工具
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: 列出所有构件
-        run: |
-          echo "获取所有构件信息..."
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100" | jq '.artifacts[] | {id, name, expired}'
-
-      - name: 下载 x86_64 构建产物
-        uses: actions/download-artifact@v4
+      - name: 下载所有构建文件
+        uses: actions/download-artifact@v3
         with:
-          name: kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}
-          path: ./kernel
+          path: ./artifacts
 
-      - name: 下载 arm64 构建产物
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}
-          path: ./kernel
-
-      - name: 列出下载的文件
-        run: ls -lh ./kernel/
-
-      - name: 发布到 GitHub Release
+      - name: 发布到Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "kernel-${{ needs.get-version.outputs.kernel_version }}"
-          name: "Kernel ${{ needs.get-version.outputs.kernel_version }} (arm64 & x86_64)"
-          files: |
-            ./kernel/kernel_release_x86_64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
-            ./kernel/kernel_release_arm64_${{ needs.get-version.outputs.kernel_version }}.tar.gz
-          body: |
-            自动生成的发布，内核版本 ${{ needs.get-version.outputs.kernel_version }}。
-            - 包含BBRv3补丁。
-            - 支持x86_64和arm64架构。
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 发布完成通知
-        run: echo "发布已完成。"
+          tag_name: ${{ env.KERNEL_VERSION }}
+          files: ./artifacts/**/*
+          body: "带有BBRv3的最新内核，适用于 x86_64 和 arm64 架构"
