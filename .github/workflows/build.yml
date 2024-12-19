@@ -117,8 +117,12 @@ jobs:
       - name: 压缩deb文件为tar.gz
         working-directory: ./kernel/
         run: |
+          if [ -z "$(ls ../linux-*.deb 2>/dev/null)" ]; then
+            echo "Error: No .deb files found for packaging."
+            exit 1
+          fi
           tar -czf kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz ../linux-*.deb
-          ls -lh ./
+          ls -lh ./kernel_release_${{ env.ARCH }}_${{ env.KERNEL_VERSION }}.tar.gz
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
