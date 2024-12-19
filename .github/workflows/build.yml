@@ -39,10 +39,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git build-essential libncurses-dev libssl-dev libelf-dev \
-            bison bc flex rsync debhelper fakeroot dpkg-dev ccache \
-            liblz4-tool liblzma-dev zstd gcc g++ libpci-dev libc6-dev-amd64 \
-            libz-dev kmod libcap-dev python3 lz4
+            git build-essential \
+            libncurses-dev libssl-dev libelf-dev \
+            libudev-dev libpci-dev libcap-dev libpcre2-dev \
+            bison bc flex rsync debhelper \
+            dpkg-dev fakeroot kmod cpio dwarves \
+            lz4 zstd xz-utils curl jq
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
