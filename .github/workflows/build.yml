@@ -13,8 +13,8 @@ jobs:
       - name: 删除旧的工作流运行记录
         uses: Mattraks/delete-workflow-runs@main
         with:
-          retain_days: 0 
-          keep_minimum_runs: 2 
+          retain_days: 0 # 保留 0 天的记录
+          keep_minimum_runs: 2 # 至少保留 2 次工作流运行记录
 
   build:
     needs: cleanup
@@ -38,7 +38,11 @@ jobs:
       - name: 安装依赖项
         run: |
           sudo apt-get update
-          sudo apt-get install -y git build-essential libncurses-dev libssl-dev libelf-dev bison bc flex rsync debhelper fakeroot dpkg-dev kernel-package ccache liblz4-tool liblzma-dev zstd gcc g++
+          sudo apt-get install -y \
+            git build-essential libncurses-dev libssl-dev libelf-dev \
+            bison bc flex rsync debhelper fakeroot dpkg-dev ccache \
+            liblz4-tool liblzma-dev zstd gcc g++ libpci-dev libc6-dev-amd64 \
+            libz-dev kmod libcap-dev python3 lz4
           if [ "${{ matrix.arch }}" == "arm64" ]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
