@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 检查并安装必要的依赖
-REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "tar" "sed" "sysctl" "update-grub")
+REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "sed" "sysctl" "update-grub")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "\033[31m缺少依赖：$cmd，正在安装...\033[0m"
@@ -36,10 +36,8 @@ clean_sysctl_conf() {
 ask_to_save() {
     echo -n -e "\033[36m(｡♥‿♥｡) 要将这些配置永久保存到 $SYSCTL_CONF 吗？(y/n): \033[0m"
     read -r SAVE
-    
     if [[ "$SAVE" == "y" || "$SAVE" == "Y" ]]; then
         clean_sysctl_conf
-
         echo "net.core.default_qdisc=$QDISC" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         echo "net.ipv4.tcp_congestion_control=$ALGO" | sudo tee -a "$SYSCTL_CONF" > /dev/null
         sudo sysctl --system > /dev/null
@@ -47,6 +45,49 @@ ask_to_save() {
     else
         echo -e "\033[33m(⌒_⌒;) 好吧，没有永久保存呢~\033[0m"
     fi
+}
+
+# 函数：从 GitHub 获取最新版本并动态生成下载链接
+get_download_links() {
+    echo -e "\033[36m正在从 GitHub 获取最新版本信息...\033[0m"
+    BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
+    RELEASE_DATA=$(curl -s "$BASE_URL")
+
+    # 根据系统架构选择版本
+    if [[ "$ARCH" == "aarch64" ]]; then
+        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "arm64" | head -n 1 | awk -F '"' '{print $4}')
+    elif [[ "$ARCH" == "x86_64" ]]; then
+        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "x86_64" | head -n 1 | awk -F '"' '{print $4}')
+    fi
+
+    if [[ -z "$TAG_NAME" ]]; then
+        echo -e "\033[31m未找到适合当前架构的版本。\033[0m"
+        exit 1
+    fi
+
+    echo -e "\033[36m找到的最新版本：$TAG_NAME\033[0m"
+    
+    # 获取所有文件的下载链接
+    DOWNLOAD_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/$TAG_NAME"
+    ASSET_URLS=$(curl -s "$BASE_URL" | grep "browser_download_url" | grep "$TAG_NAME" | awk -F '"' '{print $4}')
+
+    for URL in $ASSET_URLS; do
+        FILE=$(basename "$URL")
+        echo -e "\033[36m正在下载文件：$URL\033[0m"
+        wget "$URL" -P /tmp/
+        if [[ $? -ne 0 ]]; then
+            echo -e "\033[31m下载失败：$URL\033[0m"
+            exit 1
+        fi
+    done
+}
+
+# 函数：安装下载的包
+install_packages() {
+    echo -e "\033[36m开始安装下载的包...\033[0m"
+    sudo dpkg -i /tmp/linux-*.deb
+    sudo update-grub
+    echo -e "\033[36m安装完成，建议重启系统加载新内核。\033[0m"
 }
 
 # 美化输出的分隔线
@@ -62,7 +103,7 @@ echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\
 echo -e "\033[36m当前队列管理算法：\033[0m\033[1;32m$CURRENT_QDISC\033[0m"
 print_separator
 
-# 选项部分美化
+# 提示用户选择操作
 echo -e "\033[1;33m╭( ･ㅂ･)و ✧ 你可以选择以下操作哦：\033[0m"
 echo -e "\033[33m 1. 🛠️  安装或更新 BBR v3\033[0m"
 echo -e "\033[33m 2. 🔍 检查是否为 BBR v3\033[0m"
@@ -71,60 +112,16 @@ echo -e "\033[33m 4. ⚡ 使用 BBR + FQ_PIE 加速\033[0m"
 echo -e "\033[33m 5. ⚡ 使用 BBR + CAKE 加速\033[0m"
 echo -e "\033[33m 6. 🗑️  卸载\033[0m"
 print_separator
-echo -e "\033[34m作者：Joey ✧٩(◕‿◕｡)۶✧\033[0m"
-echo -e "\033[34m博客：https://joeyblog.net\033[0m"
-echo -e "\033[34m反馈群组：https://t.me/+ft-zI76oovgwNmRh\033[0m"
-print_separator
-
-# 提示用户选择操作
 echo -n -e "\033[36m请选择一个操作 (1-6) (｡･ω･｡): \033[0m"
 read -r ACTION
 
 case "$ACTION" in
     1)
-        echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装 BBR v3！\033[0m"
-        
-        # 检查是否已经安装了旧版本并卸载
-        echo -e "\033[36m正在检查旧版内核...( •̀ᴗ•́ )\033[0m"
-        if dpkg -l | grep -q "joeyblog"; then
-            echo -e "\033[36m发现旧版本内核，正在卸载~\033[0m"
-            sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
-        fi
-
-        # 获取最新版本下载链接
-        BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases/latest"
-        LATEST_RELEASE=$(curl -s $BASE_URL | grep "tag_name" | awk -F '"' '{print $4}')
-
-        if [[ "$ARCH" == "aarch64" ]]; then
-            FILE="kernel_release_arm64_${LATEST_RELEASE#v}.tar.gz"
-        elif [[ "$ARCH" == "x86_64" ]]; then
-            FILE="kernel_release_x86_64_${LATEST_RELEASE#v}.tar.gz"
-        fi
-
-        DOWNLOAD_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/$LATEST_RELEASE/$FILE"
-
-        echo -e "\033[36m(☆ω☆) 从 GitHub 下载 $FILE 中...\033[0m"
-        wget "$DOWNLOAD_URL" -O "/tmp/kernel_release.tar.gz"
-        if [[ $? -ne 0 ]]; then
-            echo -e "\033[31m(T_T) 下载失败了哦~\033[0m" >&2
-            exit 1
-        fi
-
-        echo -e "\033[36m( •̀ ω •́ )✧ 解压和安装文件中...\033[0m"
-        tar -xzvf /tmp/kernel_release.tar.gz -C /tmp/
-        sudo dpkg -i /tmp/linux-*.deb
-
-        echo -e "\033[36m清理下载的临时文件... ( ˘･з･)\033[0m"
-        rm /tmp/linux-*.deb /tmp/kernel_release.tar.gz
-
-        echo -e "\033[36m正在更新 GRUB 配置...\033[0m"
-        sudo update-grub
-
-        echo -e "\033[1;32m(●'◡'●) 安装完成啦，重启系统加载新内核中！\033[0m"
-        reboot
+        echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装或更新 BBR v3！\033[0m"
+        get_download_links
+        install_packages
         ;;
-
-    2)
+     2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
 
         # 检查 tcp_bbr 模块
@@ -166,36 +163,23 @@ case "$ACTION" in
         ALGO="bbr"
         QDISC="fq"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + FQ 已经设置好啦！\033[0m"
         ;;
-
     4)
         echo -e "\033[1;32m٩(•‿•)۶ 使用 BBR + FQ_PIE 加速！\033[0m"
         ALGO="bbr"
         QDISC="fq_pie"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + FQ_PIE 已经设置好啦！\033[0m"
         ;;
-
     5)
         echo -e "\033[1;32m(ﾉ≧∀≦)ﾉ 使用 BBR + CAKE 加速！\033[0m"
         ALGO="bbr"
         QDISC="cake"
         ask_to_save
-        echo -e "\033[1;32m(＾▽＾) BBR + CAKE 已经设置好啦！\033[0m"
         ;;
-
     6)
         echo -e "\033[1;32mヽ(・∀・)ノ 您选择了卸载 BBR 内核！\033[0m"
-        echo -e "\033[36m正在卸载包含 joeyblog 的内核...( •̀ᴗ•́ )\033[0m"
-        if dpkg -l | grep -q "joeyblog"; then
-            sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
-            echo -e "\033[1;32m(＾▽＾) 内核已卸载，请安装新内核并重启系统~\033[0m"
-        else
-            echo -e "\033[33m(⌒_⌒;) 没有找到包含 joeyblog 的内核呢~\033[0m"
-        fi
+        sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
         ;;
-
     *)
         echo -e "\033[31m(￣▽￣)ゞ 无效的选项，请输入 1-6 之间的数字哦~\033[0m"
         ;;
