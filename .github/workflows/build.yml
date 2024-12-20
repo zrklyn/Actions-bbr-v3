@@ -105,18 +105,9 @@ jobs:
           name: deb-${{ matrix.arch }}
           path: ./kernel/linux-*.deb
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: 下载所有构建文件
-        uses: actions/download-artifact@v3
-        with:
-          path: ./artifacts
-
       - name: 发布到Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.KERNEL_VERSION }}
-          files: ./artifacts/**/*
-          body: "带有BBRv3的最新内核，适用于 x86_64 和 arm64 架构"
+          tag_name: ${{ matrix.arch }}-${{ env.KERNEL_VERSION }}
+          files: ./kernel/linux-*.deb
+          body: "带有BBRv3的最新内核，适用于 ${{ matrix.arch }} 架构"
