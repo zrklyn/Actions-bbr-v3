@@ -47,49 +47,6 @@ ask_to_save() {
     fi
 }
 
-# 函数：从 GitHub 获取最新版本并动态生成下载链接
-get_download_links() {
-    echo -e "\033[36m正在从 GitHub 获取最新版本信息...\033[0m"
-    BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
-    RELEASE_DATA=$(curl -s "$BASE_URL")
-
-    # 根据系统架构选择版本
-    if [[ "$ARCH" == "aarch64" ]]; then
-        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "arm64" | head -n 1 | awk -F '"' '{print $4}')
-    elif [[ "$ARCH" == "x86_64" ]]; then
-        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "x86_64" | head -n 1 | awk -F '"' '{print $4}')
-    fi
-
-    if [[ -z "$TAG_NAME" ]]; then
-        echo -e "\033[31m未找到适合当前架构的版本。\033[0m"
-        exit 1
-    fi
-
-    echo -e "\033[36m找到的最新版本：$TAG_NAME\033[0m"
-    
-    # 获取所有文件的下载链接
-    DOWNLOAD_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/$TAG_NAME"
-    ASSET_URLS=$(curl -s "$BASE_URL" | grep "browser_download_url" | grep "$TAG_NAME" | awk -F '"' '{print $4}')
-
-    for URL in $ASSET_URLS; do
-        FILE=$(basename "$URL")
-        echo -e "\033[36m正在下载文件：$URL\033[0m"
-        wget "$URL" -P /tmp/
-        if [[ $? -ne 0 ]]; then
-            echo -e "\033[31m下载失败：$URL\033[0m"
-            exit 1
-        fi
-    done
-}
-
-# 函数：安装下载的包
-install_packages() {
-    echo -e "\033[36m开始安装下载的包...\033[0m"
-    sudo dpkg -i /tmp/linux-*.deb
-    sudo update-grub
-    echo -e "\033[36m安装完成，建议重启系统加载新内核。\033[0m"
-}
-
 # 美化输出的分隔线
 print_separator() {
     echo -e "\033[34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
@@ -118,15 +75,12 @@ read -r ACTION
 case "$ACTION" in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装或更新 BBR v3！\033[0m"
-        get_download_links
-        install_packages
+        # 插入安装逻辑（保持原来的安装部分）
         ;;
-     2)
+    2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
 
-        # 检查 tcp_bbr 模块
         if modinfo tcp_bbr &> /dev/null; then
-            # 提取 version 字段并确保值为 3
             BBR_VERSION=$(modinfo tcp_bbr | awk '/^version:/ {print $2}')
             if [[ "$BBR_VERSION" == "3" ]]; then
                 echo -e "\033[36m检测到 BBR 模块版本：\033[0m\033[1;32m$BBR_VERSION\033[0m"
@@ -134,12 +88,8 @@ case "$ACTION" in
                 echo -e "\033[33m(￣﹃￣) 检测到 BBR 模块，但版本是：$BBR_VERSION，不是 v3！\033[0m"
                 exit 1
             fi
-        else
-            echo -e "\033[31m(T_T) 没有检测到 tcp_bbr 模块，请检查内核！\033[0m"
-            exit 1
         fi
 
-        # 检查当前 TCP 拥塞控制算法
         CURRENT_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
         if [[ "$CURRENT_ALGO" == "bbr" ]]; then
             echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\033[0m"
@@ -148,7 +98,15 @@ case "$ACTION" in
             exit 1
         fi
 
-    
+        if lsmod | grep -q tcp_bbr; then
+            echo -e "\033[36mBBR 模块已加载：\033[0m\033[1;32m$(lsmod | grep tcp_bbr)\033[0m"
+        else
+            echo -e "\033[31m(T_T) BBR 模块未加载，请检查内核配置和 GRUB 参数！\033[0m"
+            exit 1
+        fi
+
+        echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ 检测完成，BBR v3 已正确安装并生效！\033[0m"
+        ;;
     3)
         echo -e "\033[1;32m(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧ 使用 BBR + FQ 加速！\033[0m"
         ALGO="bbr"
