@@ -133,10 +133,6 @@ case "$ACTION" in
             else
                 echo -e "\033[33m(￣﹃￣) 检测到 BBR 模块，但版本是：$BBR_VERSION，不是 v3！\033[0m"
                 exit 1
-            fi
-        else
-            echo -e "\033[31m(T_T) 没有检测到 tcp_bbr 模块，请检查内核！\033[0m"
-            exit 1
         fi
 
         # 检查当前 TCP 拥塞控制算法
