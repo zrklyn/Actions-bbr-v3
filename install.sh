@@ -75,7 +75,7 @@ read -r ACTION
 case "$ACTION" in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装或更新 BBR v3！\033[0m"
-        # 插入安装逻辑（保持原来的安装部分）
+        # 插入安装逻辑
         ;;
     2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
@@ -95,13 +95,6 @@ case "$ACTION" in
             echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\033[0m"
         else
             echo -e "\033[31m(⊙﹏⊙) 当前算法不是 bbr，而是：$CURRENT_ALGO\033[0m"
-            exit 1
-        fi
-
-        if lsmod | grep -q tcp_bbr; then
-            echo -e "\033[36mBBR 模块已加载：\033[0m\033[1;32m$(lsmod | grep tcp_bbr)\033[0m"
-        else
-            echo -e "\033[31m(T_T) BBR 模块未加载，请检查内核配置和 GRUB 参数！\033[0m"
             exit 1
         fi
 
