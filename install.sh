@@ -47,6 +47,49 @@ ask_to_save() {
     fi
 }
 
+# 函数：从 GitHub 获取最新版本并动态生成下载链接
+get_download_links() {
+    echo -e "\033[36m正在从 GitHub 获取最新版本信息...\033[0m"
+    BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
+    RELEASE_DATA=$(curl -s "$BASE_URL")
+
+    # 根据系统架构选择版本
+    if [[ "$ARCH" == "aarch64" ]]; then
+        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "arm64" | head -n 1 | awk -F '"' '{print $4}')
+    elif [[ "$ARCH" == "x86_64" ]]; then
+        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "x86_64" | head -n 1 | awk -F '"' '{print $4}')
+    fi
+
+    if [[ -z "$TAG_NAME" ]]; then
+        echo -e "\033[31m未找到适合当前架构的版本。\033[0m"
+        exit 1
+    fi
+
+    echo -e "\033[36m找到的最新版本：$TAG_NAME\033[0m"
+    
+    # 获取所有文件的下载链接
+    DOWNLOAD_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/$TAG_NAME"
+    ASSET_URLS=$(curl -s "$BASE_URL" | grep "browser_download_url" | grep "$TAG_NAME" | awk -F '"' '{print $4}')
+
+    for URL in $ASSET_URLS; do
+        FILE=$(basename "$URL")
+        echo -e "\033[36m正在下载文件：$URL\033[0m"
+        wget "$URL" -P /tmp/
+        if [[ $? -ne 0 ]]; then
+            echo -e "\033[31m下载失败：$URL\033[0m"
+            exit 1
+        fi
+    done
+}
+
+# 函数：安装下载的包
+install_packages() {
+    echo -e "\033[36m开始安装下载的包...\033[0m"
+    sudo dpkg -i /tmp/linux-*.deb
+    sudo update-grub
+    echo -e "\033[36m安装完成，建议重启系统加载新内核。\033[0m"
+}
+
 # 美化输出的分隔线
 print_separator() {
     echo -e "\033[34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
@@ -75,7 +118,8 @@ read -r ACTION
 case "$ACTION" in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装或更新 BBR v3！\033[0m"
-        # 插入安装逻辑
+        get_download_links
+        install_packages
         ;;
     2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
