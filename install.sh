@@ -87,7 +87,8 @@ install_packages() {
     echo -e "\033[36m开始安装下载的包...\033[0m"
     sudo dpkg -i /tmp/linux-*.deb
     sudo update-grub
-    echo -e "\033[36m安装完成，建议重启系统加载新内核。\033[0m"
+    echo -e "\033[36m安装完成，即将重启系统加载新内核。\033[0m"
+    reboot
 }
 
 # 美化输出的分隔线
@@ -118,6 +119,7 @@ read -r ACTION
 case "$ACTION" in
     1)
         echo -e "\033[1;32m٩(｡•́‿•̀｡)۶ 您选择了安装或更新 BBR v3！\033[0m"
+        sudo apt remove --purge $(dpkg -l | grep "joeyblog" | awk '{print $2}') -y
         get_download_links
         install_packages
         ;;
