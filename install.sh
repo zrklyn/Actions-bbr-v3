@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# 限制脚本仅支持基于 Debian/Ubuntu 的系统（即支持 apt-get 的系统）
+if ! command -v apt-get &> /dev/null; then
+    echo -e "\033[31m此脚本仅支持基于 Debian/Ubuntu 的系统，请在支持 apt-get 的系统上运行！\033[0m"
+    exit 1
+fi
+
 # 检查并安装必要的依赖，包括 jq 用于解析 JSON
 REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "sed" "sysctl" "update-grub" "jq")
 for cmd in "${REQUIRED_CMDS[@]}"; do
@@ -95,22 +101,25 @@ print_separator() {
     echo -e "\033[34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 }
 
-# 欢迎信息
+# 欢迎信息与作者信息展示
 print_separator
 echo -e "\033[1;35m(☆ω☆)✧*｡ 欢迎来到 BBR 管理脚本世界哒！ ✧*｡(☆ω☆)\033[0m"
 print_separator
 echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\033[0m"
 echo -e "\033[36m当前队列管理算法：\033[0m\033[1;32m$CURRENT_QDISC\033[0m"
 print_separator
+# 显示作者信息及实际地址
+echo -e "\033[1;33m作者：Joey  |  博客：https://joeyblog.net  |  反馈群组：https://t.me/+ft-zI76oovgwNmRh\033[0m"
+print_separator
 
 # 提示用户选择操作
 echo -e "\033[1;33m╭( ･ㅂ･)و ✧ 你可以选择以下操作哦：\033[0m"
-echo -e "\033[33m 1. 🛠️  安装或更新 BBR v3\033[0m"
-echo -e "\033[33m 2. 🔍 检查是否为 BBR v3\033[0m"
+echo -e "\033[33m 1. ️ 安装或更新 BBR v3\033[0m"
+echo -e "\033[33m 2. 检查是否为 BBR v3\033[0m"
 echo -e "\033[33m 3. ⚡ 使用 BBR + FQ 加速\033[0m"
 echo -e "\033[33m 4. ⚡ 使用 BBR + FQ_PIE 加速\033[0m"
 echo -e "\033[33m 5. ⚡ 使用 BBR + CAKE 加速\033[0m"
-echo -e "\033[33m 6. 🗑️  卸载\033[0m"
+echo -e "\033[33m 6. ️ 卸载\033[0m"
 print_separator
 echo -n -e "\033[36m请选择一个操作 (1-6) (｡･ω･｡): \033[0m"
 read -r ACTION
