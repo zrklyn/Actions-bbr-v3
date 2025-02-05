@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# 检查并安装必要的依赖
-REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "sed" "sysctl" "update-grub")
+# 检查并安装必要的依赖，包括 jq 用于解析 JSON
+REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "sed" "sysctl" "update-grub" "jq")
 for cmd in "${REQUIRED_CMDS[@]}"; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "\033[31m缺少依赖：$cmd，正在安装...\033[0m"
@@ -52,12 +52,12 @@ get_download_links() {
     echo -e "\033[36m正在从 GitHub 获取最新版本信息...\033[0m"
     BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
     RELEASE_DATA=$(curl -s "$BASE_URL")
-
-    # 根据系统架构选择版本
+    
+    # 根据系统架构选择版本，并按照发布时间排序（最新的在前），取最新的一个版本
     if [[ "$ARCH" == "aarch64" ]]; then
-        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "arm64" | head -n 1 | awk -F '"' '{print $4}')
+        TAG_NAME=$(echo "$RELEASE_DATA" | jq -r 'sort_by(.published_at) | reverse | .[] | select(.tag_name | contains("arm64")) | .tag_name' | head -n1)
     elif [[ "$ARCH" == "x86_64" ]]; then
-        TAG_NAME=$(echo "$RELEASE_DATA" | grep "tag_name" | grep "x86_64" | head -n 1 | awk -F '"' '{print $4}')
+        TAG_NAME=$(echo "$RELEASE_DATA" | jq -r 'sort_by(.published_at) | reverse | .[] | select(.tag_name | contains("x86_64")) | .tag_name' | head -n1)
     fi
 
     if [[ -z "$TAG_NAME" ]]; then
@@ -67,10 +67,9 @@ get_download_links() {
 
     echo -e "\033[36m找到的最新版本：$TAG_NAME\033[0m"
     
-    # 获取所有文件的下载链接
-    DOWNLOAD_URL="https://github.com/byJoey/Actions-bbr-v3/releases/download/$TAG_NAME"
-    ASSET_URLS=$(curl -s "$BASE_URL" | grep "browser_download_url" | grep "$TAG_NAME" | awk -F '"' '{print $4}')
-
+    # 获取对应版本中所有文件的下载链接
+    ASSET_URLS=$(echo "$RELEASE_DATA" | jq -r --arg tag "$TAG_NAME" '.[] | select(.tag_name == $tag) | .assets[].browser_download_url')
+    
     for URL in $ASSET_URLS; do
         FILE=$(basename "$URL")
         echo -e "\033[36m正在下载文件：$URL\033[0m"
@@ -125,7 +124,6 @@ case "$ACTION" in
         ;;
     2)
         echo -e "\033[1;32m(｡･ω･｡) 检查是否为 BBR v3...\033[0m"
-
         if modinfo tcp_bbr &> /dev/null; then
             BBR_VERSION=$(modinfo tcp_bbr | awk '/^version:/ {print $2}')
             if [[ "$BBR_VERSION" == "3" ]]; then
@@ -135,7 +133,6 @@ case "$ACTION" in
                 exit 1
             fi
         fi
-
         CURRENT_ALGO=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
         if [[ "$CURRENT_ALGO" == "bbr" ]]; then
             echo -e "\033[36m当前 TCP 拥塞控制算法：\033[0m\033[1;32m$CURRENT_ALGO\033[0m"
@@ -143,7 +140,6 @@ case "$ACTION" in
             echo -e "\033[31m(⊙﹏⊙) 当前算法不是 bbr，而是：$CURRENT_ALGO\033[0m"
             exit 1
         fi
-
         echo -e "\033[1;32mヽ(✿ﾟ▽ﾟ)ノ 检测完成，BBR v3 已正确安装并生效！\033[0m"
         ;;
     3)
