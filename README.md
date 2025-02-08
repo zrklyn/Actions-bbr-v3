@@ -22,19 +22,9 @@
 
 ### 🚀 如何使用？
 
-1. **下载脚本**  
+1. **一键运行**  
    ```bash
-   wget https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/install.sh
-   ```
-
-2. **赋予执行权限**  
-   ```bash
-   chmod +x install.sh
-   ```
-
-3. **运行脚本**  
-   ```bash
-   sudo ./install.sh
+   bash <(curl -l -s https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/refs/heads/main/install.sh)
    ```
 
 ---
