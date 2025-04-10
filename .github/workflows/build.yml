@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   cleanup:
@@ -40,7 +40,7 @@ jobs:
           # 修改软件源为阿里云镜像
           sudo sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list
           sudo apt-get update
-          # 安装所需的依赖项
+          # 安装所需的依赖项，包括缺少的 libssl-dev
           sudo apt-get install -y \
             git build-essential \
             libncurses-dev libssl-dev libelf-dev \
