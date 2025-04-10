@@ -37,10 +37,8 @@ jobs:
 
       - name: 修改软件源并更新依赖项
         run: |
-          # 修改软件源为阿里云镜像
-          sudo sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list
-          sudo apt-get update
-          # 安装所需的依赖项，包括缺少的 libssl-dev
+          # 使用阿里云镜像源更新和安装依赖项
+          sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/aliyun.list"
           sudo apt-get install -y \
             git build-essential \
             libncurses-dev libssl-dev libelf-dev \
