@@ -24,7 +24,7 @@ jobs:
           - arch: x86_64
             runner: [ubuntu-latest]
           - arch: arm64
-            runner: [ubuntu-latest]
+            runner: [self-hosted, linux, arm64]
     runs-on: ${{ matrix.runner }}
     env:
       ARCH: ${{ matrix.arch }}
