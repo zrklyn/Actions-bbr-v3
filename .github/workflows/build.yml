@@ -23,8 +23,8 @@ jobs:
         include:
           - arch: x86_64
             runner: [ubuntu-latest]
-          - arch: arm64
-            runner: [self-hosted, linux, arm64]
+          - arch: arm
+            runner: [ubuntu-latest]
     runs-on: ${{ matrix.runner }}
     env:
       ARCH: ${{ matrix.arch }}
