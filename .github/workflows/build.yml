@@ -22,12 +22,13 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: [ubuntu-latest]
+            runs_on: ubuntu-latest
           - arch: arm64
-            runner: [self-hosted, linux, arm64]
-    runs-on: ${{ matrix.runner }}
+            runs_on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs_on }}
     env:
       ARCH: ${{ matrix.arch }}
+      KERNEL_VERSION: ""
     steps:
       - name: 获取内核版本
         id: get_kernel_version
@@ -46,7 +47,6 @@ jobs:
           sudo apt-get install -y \
             git build-essential \
             libncurses-dev libssl-dev libelf-dev \
-            libudev-dev libpci-dev libcap-dev libpcre2-dev \
             bison bc flex rsync debhelper \
             dpkg-dev fakeroot kmod cpio dwarves \
             lz4 zstd xz-utils curl jq
@@ -72,21 +72,19 @@ jobs:
         working-directory: ./kernel/linux
         run: |
           IFS='.' read -r v p s <<< "${{ env.KERNEL_VERSION }}"
-          sed -i "s/^VERSION +=.*/VERSION = $v/" Makefile
-          sed -i "s/^PATCHLEVEL +=.*/PATCHLEVEL = $p/" Makefile
-          sed -i "s/^SUBLEVEL +=.*/SUBLEVEL = $s/" Makefile
+          sed -i "s/^VERSION *=.*/VERSION = $v/" Makefile
+          sed -i "s/^PATCHLEVEL *=.*/PATCHLEVEL = $p/" Makefile
+          sed -i "s/^SUBLEVEL *=.*/SUBLEVEL = $s/" Makefile
 
       - name: 准备 .config
         working-directory: ./kernel/linux
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            curl -sSL \
-              https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config \
+            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config \
               > .config
             make ARCH=arm64 olddefconfig
           else
-            curl -sSL \
-              https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config \
+            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config \
               > .config
             make olddefconfig
           fi
@@ -95,14 +93,12 @@ jobs:
         working-directory: ./kernel/linux
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            make ARCH=arm64 bindeb-pkg -j$(nproc) \
-              LOCALVERSION=-joeyblog-bbrv3
+            make ARCH=arm64 bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
           else
-            make bindeb-pkg -j$(nproc) \
-              LOCALVERSION=-joeyblog-bbrv3
+            make bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
           fi
 
-      - name: 上传 .config
+      - name: 上传配置文件
         uses: actions/upload-artifact@v4
         with:
           name: config-${{ matrix.arch }}
