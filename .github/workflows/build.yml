@@ -1,4 +1,4 @@
-name: 构建带有 BBRv3 的内核
+name: 构建带有BBRv3的内核
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  # 清理旧的 workflow 记录
   cleanup:
     runs-on: ubuntu-latest
     steps:
@@ -15,20 +14,18 @@ jobs:
         uses: Mattraks/delete-workflow-runs@main
         with:
           retain_days: 0       # 保留 0 天的记录
-          keep_minimum_runs: 0 # 不保留任何历史记录
+          keep_minimum_runs: 0 # 至少保留 0 次记录
 
-  # 构建内核
   build:
     needs: cleanup
     strategy:
       matrix:
         include:
           - arch: x86_64
-            runs_on: ubuntu-latest
+            runner: [ubuntu-latest]
           - arch: arm64
-            runs_on: ubuntu-24.04-arm
-    # 根据 matrix 中的 runs_on 动态选择 runner
-    runs-on: ${{ matrix.runs_on }}
+            runner: [ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
     env:
       ARCH: ${{ matrix.arch }}
     steps:
@@ -54,17 +51,17 @@ jobs:
             dpkg-dev fakeroot kmod cpio dwarves \
             lz4 zstd xz-utils curl jq
 
-      - name: 准备源码目录
+      - name: 创建源码目录
         run: mkdir -p ./kernel/linux
 
-      - name: 下载内核源码
+      - name: 下载内核源代码
         working-directory: ./kernel
         run: |
           branch=$(echo "${{ env.KERNEL_VERSION }}" | grep -oP '^\d+\.\d+')
           git clone --depth=1 --branch linux-$branch.y \
             https://github.com/gregkh/linux.git linux
 
-      - name: 添加 Google BBRv3 补丁
+      - name: 添加 Google BBRv3
         working-directory: ./kernel/linux
         run: |
           git remote add google-bbr https://github.com/google/bbr.git
@@ -79,7 +76,7 @@ jobs:
           sed -i "s/^PATCHLEVEL +=.*/PATCHLEVEL = $p/" Makefile
           sed -i "s/^SUBLEVEL +=.*/SUBLEVEL = $s/" Makefile
 
-      - name: 准备 .config 并生成默认配置
+      - name: 准备 .config
         working-directory: ./kernel/linux
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
@@ -94,13 +91,15 @@ jobs:
             make olddefconfig
           fi
 
-      - name: 构建内核并打包成 deb
+      - name: 构建内核 Debian 包
         working-directory: ./kernel/linux
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            make ARCH=arm64 bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
+            make ARCH=arm64 bindeb-pkg -j$(nproc) \
+              LOCALVERSION=-joeyblog-bbrv3
           else
-            make bindeb-pkg -j$(nproc) LOCALVERSION=-joeyblog-bbrv3
+            make bindeb-pkg -j$(nproc) \
+              LOCALVERSION=-joeyblog-bbrv3
           fi
 
       - name: 上传 .config
