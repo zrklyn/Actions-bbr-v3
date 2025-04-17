@@ -1,4 +1,23 @@
+name: 构建带有 BBRv3 的内核
+
+on:
+  workflow_dispatch:
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
+  # 清理旧的 workflow 记录
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 删除旧的工作流运行记录
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 0       # 保留 0 天的记录
+          keep_minimum_runs: 0 # 不保留任何历史记录
+
+  # 构建内核
   build:
     needs: cleanup
     strategy:
@@ -8,21 +27,31 @@ jobs:
             runs_on: ubuntu-latest
           - arch: arm64
             runs_on: ubuntu-24.04-arm
+    # 根据 matrix 中的 runs_on 动态选择 runner
     runs-on: ${{ matrix.runs_on }}
     env:
       ARCH: ${{ matrix.arch }}
-      KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
     steps:
-      - name: 检出仓库
+      - name: 获取内核版本
+        id: get_kernel_version
+        run: |
+          version=$(curl -s https://www.kernel.org \
+            | grep -A1 -m1 "stable:" \
+            | grep -oP '\d+\.\d+\.\d+')
+          echo "KERNEL_VERSION=$version" >> $GITHUB_ENV
+
+      - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装依赖
+      - name: 安装依赖项
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git build-essential libncurses-dev libssl-dev libelf-dev \
+            git build-essential \
+            libncurses-dev libssl-dev libelf-dev \
             libudev-dev libpci-dev libcap-dev libpcre2-dev \
-            bison bc flex rsync debhelper dpkg-dev fakeroot kmod cpio dwarves \
+            bison bc flex rsync debhelper \
+            dpkg-dev fakeroot kmod cpio dwarves \
             lz4 zstd xz-utils curl jq
 
       - name: 准备源码目录
@@ -35,21 +64,33 @@ jobs:
           git clone --depth=1 --branch linux-$branch.y \
             https://github.com/gregkh/linux.git linux
 
-      - name: 添加 Google BBRv3
+      - name: 添加 Google BBRv3 补丁
         working-directory: ./kernel/linux
         run: |
           git remote add google-bbr https://github.com/google/bbr.git
           git fetch google-bbr
           git checkout google-bbr/v3
 
-      - name: 设置 .config 并生成默认配置
+      - name: 更新 Makefile 中的版本号
+        working-directory: ./kernel/linux
+        run: |
+          IFS='.' read -r v p s <<< "${{ env.KERNEL_VERSION }}"
+          sed -i "s/^VERSION +=.*/VERSION = $v/" Makefile
+          sed -i "s/^PATCHLEVEL +=.*/PATCHLEVEL = $p/" Makefile
+          sed -i "s/^SUBLEVEL +=.*/SUBLEVEL = $s/" Makefile
+
+      - name: 准备 .config 并生成默认配置
         working-directory: ./kernel/linux
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config > .config
+            curl -sSL \
+              https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/arm64.config \
+              > .config
             make ARCH=arm64 olddefconfig
           else
-            curl -sSL https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config > .config
+            curl -sSL \
+              https://raw.githubusercontent.com/byJoey/Actions-bbr-v3/main/x86-64.config \
+              > .config
             make olddefconfig
           fi
 
@@ -74,7 +115,7 @@ jobs:
           name: deb-${{ matrix.arch }}
           path: ./kernel/linux-*.deb
 
-      - name: 发布到 Release
+      - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ matrix.arch }}-${{ env.KERNEL_VERSION }}
